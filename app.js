@@ -372,7 +372,8 @@ function render() {
 
 let searchSeq = 0;
 function viewSearch(v) {
-  setTitle('Kalimati', `${S.mine.size} my words · ${S.core.length.toLocaleString()} built-in`);
+  const hr = new Date().getHours();
+  setTitle('Kalimati', hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening');
   v.innerHTML = `<div class="searchbox"><input id="q" type="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search English or عربي" value="${esc(S.query)}" aria-label="Search"><button class="clear" aria-label="Clear" ${S.query ? '' : 'hidden'}>×</button><button class="mic" aria-label="Speak to search">${ICON_MIC}</button></div>
     <div class="miclang" hidden><span class="src">Speak in</span><button class="chip" data-ml="${esc(S.settings.accent)}">English</button><button class="chip ar" data-ml="ar-SA">عربي</button></div><div id="results"></div>`;
   const inp = $('#q', v);
@@ -382,11 +383,12 @@ function viewSearch(v) {
     inp.dir = isAr(q) ? 'rtl' : 'ltr';
     if (!q) {
       const recent = [...S.mine.values()].sort((a, b) => b.added - a.added).slice(0, 8);
-      out.innerHTML = `<p class="hint">Type a word in English or Arabic. Tap a word to hear it, see how to say it, and save it to your words.</p>` +
+      out.innerHTML = `<div class="homestats"><button data-go="review"><b>${streak()}</b><small>Day streak</small></button><button data-go="review"><b>${dueList().length}</b><small>Due today</small></button><button data-go="mine"><b>${S.mine.size}</b><small>My words</small></button></div><p class="hint">Type a word in English or Arabic. Tap a word to hear it, see how to say it, and save it to your words.</p>` +
         (recent.length ? `<div class="group-h">Recently added</div><ul class="list">${recent.map(r => rowHTML(r, 'mine')).join('')}</ul>` :
           `<div class="empty"><p>Your dictionary is empty. Add the first word you heard today.</p><button class="btn primary" data-act="add">Add a word</button></div>`);
       out.insertAdjacentHTML('beforeend', Object.entries(PACKS).map(([k, p]) => `<div class="group-h">Word packs</div><button class="pack" data-pack="${k}"><span><b>${esc(p.name)}</b><br><span class="ar">${esc(p.ar)}</span></span><span class="src">${S.core.filter(e => e.k === k).length} terms ›</span></button>`).join(''));
       $$('[data-pack]', out).forEach(b => b.onclick = () => openPack(b.dataset.pack));
+      $$('[data-go]', out).forEach(b => b.onclick = () => { S.tab = b.dataset.go; render(); window.scrollTo(0, 0); });
       const b = $('[data-act=add]', out); if (b) b.onclick = () => openAdd();
       bindRows(out); return;
     }
@@ -875,7 +877,7 @@ function viewSettings(v) {
       <p class="about">${S.mine.size} words saved on this phone${DB.ok ? '' : ' (temporary storage — export a backup)'}. Export a backup from time to time, and before changing phone.</p>
     </section>
     <section class="set"><h2>About</h2>
-      <p class="about">Kalimati (كلماتي) — your private English–Arabic dictionary. Version 2.2.<br>
+      <p class="about">Kalimati (كلماتي) — your private English–Arabic dictionary. Version 2.3.<br>
       Built-in list: ${S.core.length.toLocaleString()} words with checked Arabic meanings — ${S.core.filter(e => !e.k).length.toLocaleString()} common English words and ${S.core.filter(e => e.k).length} oil &amp; gas and process terms, written for this app.<br>
       Extra suggested meanings (not checked): FreeDict / Arabeyes English–Arabic word list (GPL), about 85,000 words.<br>
       Online lookup (when on): MyMemory for translations, Free Dictionary API for English meanings, examples and pronunciation.<br>
