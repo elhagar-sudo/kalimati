@@ -43,7 +43,7 @@ const DB = (() => {
 const S = {
   core: [], coreMap: new Map(), lex: null, lexLoading: null,
   mine: new Map(), irrBack: new Map(),
-  settings: { online: true, accent: 'en-US', slow: 0.6, dir: 'en-ar', mode: 'card', goal: 10, remindAt: '19:00', pronInReview: 'tap', theme: 'system', tags: [...DEFAULT_TAGS], autoplay: true },
+  settings: { style: 'clean', online: true, accent: 'en-US', slow: 0.6, dir: 'en-ar', mode: 'card', goal: 10, remindAt: '19:00', pronInReview: 'tap', theme: 'system', tags: [...DEFAULT_TAGS], autoplay: true },
   tab: 'search', query: '', mineFilter: { tag: '', sort: 'new', q: '' }, review: null, log: {}
 };
 const PACKS = { oilgas: { name: 'Oil & gas and process', short: 'Oil & gas', ar: 'النفط والغاز والعمليات' } };
@@ -865,8 +865,10 @@ function viewSettings(v) {
       <div class="opt"><span>Add a repeating daily reminder to your phone calendar</span><button class="btn" data-act="ics">Add</button></div>
       <p class="about">This makes a calendar file. Open it with Google Calendar and tap Save; the calendar will alert you every day at this time.</p>
     </section>
-    <section class="set"><h2>Look</h2>
-      <div class="opt"><span>Theme</span>${seg('theme', [['system', 'Auto'], ['light', 'Light'], ['dark', 'Dark']])}</div>
+    <section class="set"><h2>Design</h2>
+      <div class="styles">${STYLES.map(([k, n, d, sw]) => `<button class="stylebtn ${S.settings.style === k ? 'on' : ''}" data-style-pick="${k}" aria-pressed="${S.settings.style === k}">
+        <span class="sw">${sw.map(c => `<i style="background:${c}"></i>`).join('')}</span><b>${n}</b><small>${d}</small></button>`).join('')}</div>
+      <div class="opt"><span>Light or dark${S.settings.style === 'night' ? ' <span class="src">(Dark modern is always dark)</span>' : ''}</span>${seg('theme', [['system', 'Auto'], ['light', 'Light'], ['dark', 'Dark']])}</div>
     </section>
     <section class="set"><h2>Backup</h2>
       <div class="opt"><span>Send backup to Google Drive, email or WhatsApp</span><button class="btn primary" data-act="share">Share</button></div>
@@ -877,7 +879,7 @@ function viewSettings(v) {
       <p class="about">${S.mine.size} words saved on this phone${DB.ok ? '' : ' (temporary storage — export a backup)'}. Export a backup from time to time, and before changing phone.</p>
     </section>
     <section class="set"><h2>About</h2>
-      <p class="about">Kalimati (كلماتي) — your private English–Arabic dictionary. Version 2.3.<br>
+      <p class="about">Kalimati (كلماتي) — your private English–Arabic dictionary. Version 2.4.<br>
       Built-in list: ${S.core.length.toLocaleString()} words with checked Arabic meanings — ${S.core.filter(e => !e.k).length.toLocaleString()} common English words and ${S.core.filter(e => e.k).length} oil &amp; gas and process terms, written for this app.<br>
       Extra suggested meanings (not checked): FreeDict / Arabeyes English–Arabic word list (GPL), about 85,000 words.<br>
       Online lookup (when on): MyMemory for translations, Free Dictionary API for English meanings, examples and pronunciation.<br>
@@ -888,6 +890,7 @@ function viewSettings(v) {
     if (k === 'slow') val = parseFloat(val); if (k === 'autoplay' || k === 'online') val = val === 'true'; if (k === 'goal') val = parseInt(val, 10);
     S.settings[k] = val; saveSettings(); applyTheme(); viewSettings(v);
   });
+  $$('[data-style-pick]', v).forEach(b => b.onclick = () => { S.settings.style = b.dataset.stylePick; saveSettings(); applyTheme(); viewSettings(v); toast('Design changed'); });
   $('[data-act=test]', v).onclick = () => { speak('Hello. This is how your words will sound.'); const vo = pickVoice(S.settings.accent); $('#vinfo', v).textContent = vo ? vo.name : 'Default voice'; };
   $('[data-act=exjson]', v).onclick = exportJSON;
   $('[data-act=share]', v).onclick = shareBackup;
@@ -898,7 +901,22 @@ function viewSettings(v) {
   $('#impfile', v).onchange = e => importFile(e.target.files[0]);
 }
 async function saveSettings() { try { localStorage.setItem('kalimati-settings', JSON.stringify(S.settings)); } catch (e) { } await DB.setMeta('settings', S.settings); }
-function applyTheme() { const t = S.settings.theme; if (t === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.dataset.theme = t; }
+const STYLES = [
+  ['original', 'Original', 'Teal header, serif words', ['#12343B', '#F3F6F4', '#1F6F6A', '#F5C64F']],
+  ['clean', 'Clean & light', 'White cards, strong blue', ['#F7F8FB', '#FFFFFF', '#2F5BEA', '#FFE08A']],
+  ['night', 'Dark modern', 'Navy and violet, always dark', ['#0F1320', '#171D2E', '#8B7CF6', '#EEF1F8']],
+  ['classic', 'Classic dictionary', 'Paper colour, serif, red', ['#FBF8F1', '#FFFDF8', '#8E1B22', '#231C17']]
+];
+const STYLE_BAR = { original: '#12343B', clean: '#F7F8FB', night: '#0F1320', classic: '#FBF8F1' };
+function applyTheme() {
+  const r = document.documentElement, t = S.settings.theme;
+  if (t === 'system') r.removeAttribute('data-theme'); else r.dataset.theme = t;
+  const st = STYLES.some(x => x[0] === S.settings.style) ? S.settings.style : 'clean';
+  r.dataset.style = st;
+  const dark = st === 'night' || t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const m = document.querySelector('meta[name=theme-color]');
+  if (m) m.content = dark ? (st === 'original' ? '#0A2227' : st === 'classic' ? '#1A1612' : st === 'clean' ? '#0F1218' : '#0F1320') : STYLE_BAR[st];
+}
 
 /* ---------- backup ---------- */
 function download(name, text, type) {
