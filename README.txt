@@ -1,4 +1,4 @@
-KALIMATI — My English–Arabic Dictionary (version 2.4)
+KALIMATI — My English–Arabic Dictionary (version 2.5)
 
 HOW TO PUT IT ON YOUR PHONE (free, about 10 minutes)
 The app must be hosted on an https web address once. After that it installs
@@ -38,6 +38,12 @@ NEW IN VERSION 2
    calendar and alerts you every day).
  - Share backup straight to Google Drive, email or WhatsApp.
  - Oil & gas and process word pack (225 terms), on the Search screen.
+
+NEW IN VERSION 2.5
+ - Search by camera: tap the camera in the Search box, take a photo of
+   printed English text, then tap the word you want. Runs on the phone;
+   the reader loads once (about 11 MB), then works offline.
+ - Voice search: say a whole sentence and tap the word you want.
 
 NEW IN VERSION 2.4
  - Choose your design in Settings > Design: Original, Clean & light,

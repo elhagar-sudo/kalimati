@@ -372,3 +372,23 @@ input.spell:focus{border-color:var(--accent);outline:none}
 .stylebtn b{font-size:14px;font-family:var(--ui)}
 .stylebtn small{font-size:12px;color:var(--muted)}
 :root:not([data-style="original"]) .say.big{background:var(--accent);color:var(--on-accent)}
+
+/* ---- v2.5: camera search ---- */
+.searchbox input#q{padding-right:128px}
+.searchbox .clear{right:84px}
+.searchbox .cam{position:absolute;right:44px;top:50%;transform:translateY(-50%);width:40px;height:40px;border:0;border-radius:50%;background:none;color:var(--accent);display:grid;place-items:center}
+.cam svg,.campick svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.campick{display:grid;gap:10px;margin:6px 0 12px}
+.campick label{display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;text-align:center}
+.ocrstat{margin:14px 0}
+.ocrstat .progress{margin-top:8px}
+.ophoto{position:relative;margin:10px 0 6px;border-radius:12px;overflow:hidden;border:1px solid var(--line);line-height:0}
+.ophoto img{width:100%;height:auto;display:block}
+.obox{position:absolute;border:0;padding:0;background:color-mix(in srgb, var(--accent) 14%, transparent);outline:1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);border-radius:3px}
+.obox:active,.obox:focus-visible{background:color-mix(in srgb, var(--accent) 35%, transparent)}
+.wchip{font-family:var(--en);font-size:15.5px;font-weight:600}
+.wchip.mine{border-color:var(--accent);color:var(--accent)}
+.commonw{margin-top:6px}
+.commonw summary{cursor:pointer}
+.ocrtext{white-space:pre-wrap;font-size:14px;color:var(--muted);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px}
+.said{font-family:var(--en);font-size:18px;color:var(--text)}

@@ -137,6 +137,7 @@ function speak(text, { lang, slow } = {}) {
 const ICON_SPEAK = '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>';
 const ICON_SLOW = '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/></svg>';
 const ICON_MIC = '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>';
+const ICON_CAM = '<svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
 const ICON_REC = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="currentColor"/></svg>';
 
 /* ---------------- voice typing (speech recognition) ---------------- */
@@ -374,7 +375,7 @@ let searchSeq = 0;
 function viewSearch(v) {
   const hr = new Date().getHours();
   setTitle('Kalimati', hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening');
-  v.innerHTML = `<div class="searchbox"><input id="q" type="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search English or عربي" value="${esc(S.query)}" aria-label="Search"><button class="clear" aria-label="Clear" ${S.query ? '' : 'hidden'}>×</button><button class="mic" aria-label="Speak to search">${ICON_MIC}</button></div>
+  v.innerHTML = `<div class="searchbox"><input id="q" type="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search English or عربي" value="${esc(S.query)}" aria-label="Search"><button class="clear" aria-label="Clear" ${S.query ? '' : 'hidden'}>×</button><button class="cam" aria-label="Search by camera">${ICON_CAM}</button><button class="mic" aria-label="Speak to search">${ICON_MIC}</button></div>
     <div class="miclang" hidden><span class="src">Speak in</span><button class="chip" data-ml="${esc(S.settings.accent)}">English</button><button class="chip ar" data-ml="ar-SA">عربي</button></div><div id="results"></div>`;
   const inp = $('#q', v);
   const run = () => {
@@ -423,7 +424,18 @@ function viewSearch(v) {
   let st; inp.oninput = () => { clearTimeout(st); st = setTimeout(run, 200); }; $('.clear', v).onclick = () => { inp.value = ''; run(); inp.focus(); };
   const ml = $('.miclang', v), mic = $('.mic', v);
   mic.onclick = () => { ml.hidden = !ml.hidden; };
-  $$('[data-ml]', v).forEach(b => b.onclick = () => { ml.hidden = true; micInto(mic, inp, b.dataset.ml); });
+  $$('[data-ml]', v).forEach(b => b.onclick = async () => {
+    ml.hidden = true; const lang = b.dataset.ml;
+    mic.classList.add('live');
+    try {
+      const t = (await listen(lang))[0];
+      if (!t) toast('Did not catch that. Try again.');
+      else if (t.trim().split(/\s+/).length > 1) openTextWords(t, lang.startsWith('ar') ? 'ar' : 'en', 'You said');
+      else { inp.value = lang.startsWith('en') ? t.toLowerCase() : t; run(); }
+    } catch (e) { micError(e); }
+    mic.classList.remove('live');
+  });
+  $('.cam', v).onclick = () => openCamera();
   run();
   if (!S.lex) loadLex().then(() => { if (S.tab === 'search' && S.query) run(); });
 }
@@ -456,7 +468,8 @@ function viewMine(v) {
 
 /* ---------- word detail ---------- */
 function openWord(w) {
-  const id = normEn(w);
+  let id = normEn(w);
+  if (!S.mine.has(id) && !S.coreMap.has(id) && !(S.lex && S.lex[id] && S.lex[id][0])) { const h = lookup(id); if (h) id = h.lemma; }
   const mine = S.mine.get(id);
   const core = S.coreMap.get(id);
   const lexE = !mine && !core && S.lex && S.lex[id] ? { w: id, a: S.lex[id][0], c: S.lex[id][1] } : null;
@@ -530,6 +543,116 @@ function bindPractice(body, word) {
   };
   pm.onclick = () => Rec.url && playUrl(Rec.url);
   pc.onclick = () => speak(word, { slow: true });
+}
+
+/* ---------- camera search (OCR, English) ---------- */
+const OCR = { worker: null, loading: null };
+function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('load')); document.head.appendChild(s); }); }
+async function ocrWorker(onProgress) {
+  if (OCR.worker) return OCR.worker;
+  if (!OCR.loading) OCR.loading = (async () => {
+    if (!window.Tesseract) await loadScript('ocr/tesseract.min.js');
+    const w = await Tesseract.createWorker('eng', 1, {
+      workerPath: new URL('ocr/worker.min.js', location.href).href,
+      corePath: new URL('ocr/', location.href).href,
+      langPath: new URL('ocr/', location.href).href,
+      logger: m => OCR.onProgress && OCR.onProgress(m)
+    });
+    OCR.worker = w; return w;
+  })().catch(e => { OCR.loading = null; throw e; });
+  OCR.onProgress = onProgress;
+  return OCR.loading;
+}
+function shrinkImage(file, max = 1800) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file); const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('image')); };
+    img.src = url;
+  });
+}
+function openCamera() {
+  const body = sheet('Search by camera', `
+    <p class="hint">Take a photo of printed English text, such as a report, a sign or a book page. The app reads the words on your phone, then you tap the word you want.</p>
+    <div class="campick">
+      <label class="btn primary wide" for="camShot">${ICON_CAM}<span>Take a photo</span></label>
+      <label class="btn wide" for="camPick">Choose from gallery</label>
+    </div>
+    <input type="file" id="camShot" accept="image/*" capture="environment" hidden>
+    <input type="file" id="camPick" accept="image/*" hidden>
+    <p class="src">Tips: hold the phone straight, fill the photo with the text, use good light. Handwriting does not read well.</p>
+    <div id="camOut"></div>`);
+  const go = e => { const f = e.target.files && e.target.files[0]; if (f) readPhoto(f, body); e.target.value = ''; };
+  $('#camShot', body).onchange = go; $('#camPick', body).onchange = go;
+}
+async function readPhoto(file, body) {
+  const out = $('#camOut', body);
+  out.innerHTML = `<div class="ocrstat"><span id="ocrMsg">Preparing the photo…</span><div class="progress"><i id="ocrBar"></i></div></div>`;
+  const msg = $('#ocrMsg', out), bar = $('#ocrBar', out);
+  try {
+    const canvas = await shrinkImage(file);
+    const w = await ocrWorker(m => {
+      if (m.status === 'recognizing text') { msg.textContent = 'Reading the words…'; bar.style.width = Math.round(m.progress * 100) + '%'; }
+      else if (/load|initiali/.test(m.status)) { msg.textContent = 'Getting the reader ready (first time only)…'; bar.style.width = Math.round((m.progress || 0) * 100) + '%'; }
+    });
+    OCR.onProgress = m => { if (m.status === 'recognizing text') { msg.textContent = 'Reading the words…'; bar.style.width = Math.round(m.progress * 100) + '%'; } };
+    msg.textContent = 'Reading the words…';
+    const { data } = await w.recognize(canvas);
+    const words = (data.words || []).filter(x => x.confidence > 45 && /[a-z]/i.test(x.text));
+    showPhotoWords(out, canvas, words, data.text || '');
+  } catch (e) {
+    out.innerHTML = `<div class="warnbox">The photo could not be read. ${navigator.onLine === false ? 'The reader needs internet the first time you use it.' : 'Try again with a clearer photo.'}</div>`;
+  }
+}
+function cleanWord(t) { return String(t).toLowerCase().replace(/[’`]/g, "'").replace(/^[^a-z]+|[^a-z]+$/g, '').replace(/'s$/, ''); }
+function wordInfo(w) {
+  const hit = lookup(w);
+  const lemma = hit ? hit.lemma : w;
+  const mine = S.mine.has(lemma);
+  const core = S.coreMap.get(lemma);
+  const common = !mine && core && core.r < 400;
+  return { w, lemma, mine, common, a: hit ? hit.rec.a : '' };
+}
+function wordChips(list) {
+  return `<div class="chips">${list.map(x => `<button class="chip wchip${x.mine ? ' mine' : ''}" data-word="${esc(x.lemma)}">${esc(x.w)}${x.mine ? ' ★' : ''}</button>`).join('')}</div>`;
+}
+function groupedWords(raw) {
+  const seen = new Set(), items = [];
+  for (const t of raw) { const w = cleanWord(t); if (w.length < 2 || seen.has(w)) continue; seen.add(w); items.push(wordInfo(w)); }
+  const fresh = items.filter(x => !x.mine && !x.common), mine = items.filter(x => x.mine), common = items.filter(x => x.common);
+  let html = '';
+  if (fresh.length) html += `<div class="group-h">New to you (${fresh.length})</div>${wordChips(fresh)}`;
+  if (mine.length) html += `<div class="group-h">Already in my words (${mine.length})</div>${wordChips(mine)}`;
+  if (common.length) html += `<details class="commonw"><summary class="group-h">Common words (${common.length})</summary>${wordChips(common)}</details>`;
+  return { html, count: items.length };
+}
+function bindWordChips(root) { $$('[data-word]', root).forEach(b => b.onclick = () => openWord(b.dataset.word)); }
+function showPhotoWords(out, canvas, words, text) {
+  if (!words.length) { out.innerHTML = '<div class="warnbox">No English words found. Try a closer, sharper photo with good light.</div>'; return; }
+  const g = groupedWords(words.map(x => x.text));
+  const W = canvas.width, H = canvas.height;
+  const boxes = words.map(x => { const w = cleanWord(x.text); if (w.length < 2) return ''; const b = x.bbox;
+    return `<button class="obox" data-word="${esc(wordInfo(w).lemma)}" aria-label="${esc(w)}" style="left:${b.x0 / W * 100}%;top:${b.y0 / H * 100}%;width:${(b.x1 - b.x0) / W * 100}%;height:${(b.y1 - b.y0) / H * 100}%"></button>`; }).join('');
+  out.innerHTML = `<p class="hint">Tap a word in the photo or in the list below.</p>
+    <div class="ophoto"><img src="${canvas.toDataURL('image/jpeg', 0.8)}" alt="Your photo">${boxes}</div>
+    ${g.html}
+    <details class="commonw"><summary class="group-h">Full text found</summary><p class="ocrtext">${esc(text)}</p></details>`;
+  bindWordChips(out);
+}
+function openTextWords(text, lang, title) {
+  if (lang === 'ar') {
+    const body = sheet(title, `<p class="hint">“${esc(text)}”</p><p class="src">Tap a word to find its English meaning.</p>
+      <div class="chips">${[...new Set(text.split(/\s+/).filter(Boolean))].map(w => `<button class="chip ar" data-arw="${esc(w)}">${esc(w)}</button>`).join('')}</div>`);
+    $$('[data-arw]', body).forEach(b => b.onclick = () => { closeSheet(); S.tab = 'search'; S.query = b.dataset.arw; render(); });
+    return;
+  }
+  const g = groupedWords(text.split(/\s+/));
+  const body = sheet(title, `<p class="hint said">“${esc(text)}”</p><p class="src">Tap the word you want.</p>${g.html}`);
+  bindWordChips(body);
 }
 
 /* ---------- word packs ---------- */
@@ -879,10 +1002,11 @@ function viewSettings(v) {
       <p class="about">${S.mine.size} words saved on this phone${DB.ok ? '' : ' (temporary storage — export a backup)'}. Export a backup from time to time, and before changing phone.</p>
     </section>
     <section class="set"><h2>About</h2>
-      <p class="about">Kalimati (كلماتي) — your private English–Arabic dictionary. Version 2.4.<br>
+      <p class="about">Kalimati (كلماتي) — your private English–Arabic dictionary. Version 2.5.<br>
       Built-in list: ${S.core.length.toLocaleString()} words with checked Arabic meanings — ${S.core.filter(e => !e.k).length.toLocaleString()} common English words and ${S.core.filter(e => e.k).length} oil &amp; gas and process terms, written for this app.<br>
       Extra suggested meanings (not checked): FreeDict / Arabeyes English–Arabic word list (GPL), about 85,000 words.<br>
       Online lookup (when on): MyMemory for translations, Free Dictionary API for English meanings, examples and pronunciation.<br>
+      Camera text reading: Tesseract.js (Apache 2.0), runs on the phone.<br>
       Written pronunciation: CMU Pronouncing Dictionary (US English). Sound: your phone's text-to-speech voices.</p>
     </section>`;
   $$('[data-k]', v).forEach(b => b.onclick = () => {
