@@ -392,3 +392,34 @@ input.spell:focus{border-color:var(--accent);outline:none}
 .commonw summary{cursor:pointer}
 .ocrtext{white-space:pre-wrap;font-size:14px;color:var(--muted);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px}
 .said{font-family:var(--en);font-size:18px;color:var(--text)}
+
+/* ---- v2.6: Talk practice ---- */
+.tab{min-width:52px;padding:4px 3px;font-size:11px}
+.talkbar{position:sticky;top:0;z-index:3;background:var(--paper);padding-top:2px;margin:0 0 6px}
+.talkbar .chips.scroll{margin-bottom:4px}
+.talkstats{margin:0 2px 4px}
+.chat{display:flex;flex-direction:column;gap:10px;padding-bottom:128px}
+.bub{max-width:88%;padding:10px 13px;border-radius:16px;font-size:15.5px;line-height:1.5}
+.bub.app{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-bottom-left-radius:5px}
+.bub.me{align-self:flex-end;background:var(--accent);color:var(--on-accent);border-bottom-right-radius:5px;font-family:var(--en)}
+.bub.fb{align-self:stretch;max-width:100%;background:var(--soft);border-radius:12px;font-size:14.5px}
+.bubtools{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.chip.hint{font-size:13px;padding:4px 10px}
+.chip.hint .ar{font-size:13px;color:var(--muted)}
+.say.mini{width:30px;height:30px;display:inline-grid;vertical-align:middle}
+.say.mini svg{width:15px;height:15px}
+.fbline{margin:3px 0}
+.fbline.good{color:var(--good)} .fbline.bad{color:var(--danger)} .fbline.warn{color:var(--warn)}
+.gsent{font-family:var(--en);font-size:16px;background:var(--card);border-radius:8px;padding:6px 10px;margin:4px 0}
+mark.gerr{background:color-mix(in srgb, var(--danger) 22%, transparent);color:inherit;border-bottom:2px solid var(--danger);border-radius:2px}
+.glist{margin:4px 0 6px;padding-left:18px}
+.better{font-family:var(--en)}
+.coach{display:flex;gap:8px;align-items:center;background:var(--card);border-radius:8px;padding:6px 8px;margin:4px 0}
+.rsmini{font-weight:700;letter-spacing:.02em}
+.retry{display:flex;gap:8px;justify-content:center}
+.composer{position:fixed;left:0;right:0;bottom:calc(64px + env(safe-area-inset-bottom));max-width:640px;margin:0 auto;display:flex;gap:8px;align-items:center;padding:8px 12px;background:var(--paper);border-top:1px solid var(--line);z-index:5}
+.composer input{flex:1;min-width:0;padding:12px 14px;border-radius:24px;border:1.5px solid var(--line);background:var(--card);font-size:16px}
+.composer input:focus{border-color:var(--accent);outline:none}
+.composer .send{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--accent);font-size:18px}
+.composer .tmic{width:52px;height:52px;border-radius:50%;border:0;background:var(--accent);color:var(--on-accent);display:grid;place-items:center}
+.composer .tmic svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}

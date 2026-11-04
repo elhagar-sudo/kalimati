@@ -43,7 +43,7 @@ const DB = (() => {
 const S = {
   core: [], coreMap: new Map(), lex: null, lexLoading: null,
   mine: new Map(), irrBack: new Map(),
-  settings: { style: 'clean', online: true, accent: 'en-US', slow: 0.6, dir: 'en-ar', mode: 'card', goal: 10, remindAt: '19:00', pronInReview: 'tap', theme: 'system', tags: [...DEFAULT_TAGS], autoplay: true },
+  settings: { talkVoice: true, grammar: true, style: 'clean', online: true, accent: 'en-US', slow: 0.6, dir: 'en-ar', mode: 'card', goal: 10, remindAt: '19:00', pronInReview: 'tap', theme: 'system', tags: [...DEFAULT_TAGS], autoplay: true },
   tab: 'search', query: '', mineFilter: { tag: '', sort: 'new', q: '' }, review: null, log: {}
 };
 const PACKS = { oilgas: { name: 'Oil & gas and process', short: 'Oil & gas', ar: 'النفط والغاز والعمليات' } };
@@ -368,7 +368,7 @@ function render() {
   $$('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === S.tab));
   updateBadge();
   const v = $('#view');
-  ({ search: viewSearch, mine: viewMine, review: viewReview, settings: viewSettings })[S.tab](v);
+  ({ search: viewSearch, mine: viewMine, review: viewReview, talk: viewTalk, settings: viewSettings })[S.tab](v);
 }
 
 let searchSeq = 0;
@@ -963,6 +963,230 @@ function drawCard(v) {
   if (autoplay) setTimeout(() => speak(rec.w), 250);
 }
 
+/* ---------- Talk: free practice conversation built from my words ---------- */
+const TALK_Q = {
+  n: ['Tell me about the {w} at your work or at home.', 'Where do you usually see a {w}? Answer in one or two sentences.', 'Why is a {w} useful? Use the word “{w}” in your answer.'],
+  v: ['When did you last {w} something? Tell me about it.', 'What do you need to do before you {w}? Use “{w}” in your answer.', 'Make a sentence about your work using the verb “{w}”.'],
+  adj: ['Describe something {w} you saw this week.', 'Tell me about a situation that was {w}. Use the word “{w}”.'],
+  adv: ['Tell me something you do {w}.', 'Make a sentence using “{w}” about your daily routine.'],
+  any: ['Make a sentence using “{w}”.', 'Use “{w}” in a sentence about your day.']
+};
+const TALK_PRAISE = ['Good sentence.', 'Well done.', 'Nice work.', 'That works.', 'Good, clear answer.'];
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const T = { msgs: [], cur: null, topic: '', busy: false, done: 0, used: 0 };
+
+function talkPool() {
+  const all = [...S.mine.values()].filter(r => r.w && r.a && r.w.split(' ').length <= 3);
+  let pool = T.topic ? all.filter(r => (r.tags || []).includes(T.topic)) : all;
+  // favour words being learned or due, then new ones; known words less often
+  const now = Date.now();
+  const weight = r => { const st = status(r); return (r.srs?.due ?? 0) <= now ? 4 : st === 'learning' ? 3 : st === 'new' ? 3 : 1; };
+  const bag = [];
+  pool.forEach(r => { for (let i = 0; i < weight(r); i++) bag.push(r); });
+  return { bag, mineCount: pool.length };
+}
+function commonWord() {
+  const c = S.core.filter(e => !e.k && e.r > 300 && e.r < 3500 && /^(n|v|adj|adv)/.test(e.p || '') && !/\s/.test(e.w));
+  return pick(c);
+}
+function nextPrompt() {
+  const { bag, mineCount } = talkPool();
+  const usePack = mineCount === 0 || Math.random() < 0.15; // mostly my words, sometimes a common word
+  const w1 = usePack ? commonWord() : pick(bag);
+  const pos = String(w1.p || '').split(',')[0].trim() || 'any';
+  const r = Math.random();
+  let type = 'q', text, words = [w1];
+  if (mineCount >= 4 && r < 0.2) {
+    let w2; for (let i = 0; i < 10 && (!w2 || w2.w === w1.w); i++) w2 = pick(bag);
+    if (w2 && w2.w !== w1.w) { type = 'two'; words = [w1, w2]; text = `Make one sentence using both “${w1.w}” and “${w2.w}”.`; }
+  }
+  if (type === 'q' && r > 0.75 && w1.a) {
+    type = 'ar'; text = `Say a sentence in English using the word that means «${w1.a.split(/[،؛]/)[0].trim()}».`;
+  }
+  if (type === 'q') text = pick(TALK_Q[pos] || TALK_Q.any).replace(/\{w\}/g, w1.w);
+  return { type, text, words: words.map(x => ({ w: x.w, a: x.a, c: x.c, mine: S.mine.has(x.w) })), fromCommon: usePack && mineCount > 0, tries: 0 };
+}
+function talkSay(text) { if (S.settings.talkVoice !== false) speak(text.replace(/[«»“”]/g, '')); }
+function addMsg(m) { T.msgs.push(m); if (T.msgs.length > 60) T.msgs.splice(0, T.msgs.length - 60); }
+function askNext(intro) {
+  T.retry = false;
+  T.cur = nextPrompt();
+  const lead = intro ? intro + ' ' : '';
+  addMsg({ who: 'app', html: `${esc(lead)}${esc(T.cur.text)}`, say: lead + T.cur.text, hintWords: T.cur.type === 'ar' ? null : T.cur.words, arHint: T.cur.type === 'ar' ? T.cur.words[0] : null });
+  drawTalk(); talkSay(lead + T.cur.text);
+}
+
+/* -- checks -- */
+function usesWord(text, w) {
+  const t = ' ' + normEn(text) + ' ';
+  const target = normEn(w);
+  if (t.includes(' ' + target + ' ')) return true;
+  if (target.includes(' ')) return false;
+  return normEn(text).split(' ').some(tok => tok === target || lemmas(tok).includes(target));
+}
+function prepSpoken(s) {
+  s = s.trim(); if (!s) return s;
+  s = s[0].toUpperCase() + s.slice(1);
+  s = s.replace(/\bi\b/g, 'I');
+  if (!/[.!?]$/.test(s)) s += /^(what|where|when|why|how|who|do|does|did|is|are|can|could|would|will|should)\b/i.test(s) ? '?' : '.';
+  return s;
+}
+async function grammarCheck(text) {
+  if (S.settings.grammar === false || navigator.onLine === false) return null;
+  try {
+    const c = new AbortController(); const t = setTimeout(() => c.abort(), 8000);
+    const r = await fetch('https://api.languagetool.org/v2/check', { method: 'POST', signal: c.signal,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ text, language: 'en-US', level: 'default' }) });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    return (await r.json()).matches || [];
+  } catch (e) { return null; }
+}
+function applyFixes(text, matches) {
+  let out = text;
+  [...matches].sort((a, b) => b.offset - a.offset).forEach(m => {
+    const rep = m.replacements && m.replacements[0] && m.replacements[0].value;
+    if (rep != null) out = out.slice(0, m.offset) + rep + out.slice(m.offset + m.length);
+  });
+  return out;
+}
+function markErrors(text, matches) {
+  let html = '', i = 0;
+  [...matches].sort((a, b) => a.offset - b.offset).forEach(m => {
+    if (m.offset < i) return;
+    html += esc(text.slice(i, m.offset)) + `<mark class="gerr">${esc(text.slice(m.offset, m.offset + m.length))}</mark>`;
+    i = m.offset + m.length;
+  });
+  return html + esc(text.slice(i));
+}
+function styleTips(text, spoken) {
+  const tips = [];
+  const words = normEn(text).split(' ').filter(Boolean);
+  if (words.length < 4) tips.push('Try a longer sentence: add where, when or why.');
+  const rep = words.find((w, i) => w.length > 2 && words[i + 1] === w);
+  if (rep) tips.push(`“${rep}” is repeated. Say it once.`);
+  if (!spoken && /^[a-z]/.test(text.trim())) tips.push('Start a sentence with a capital letter.');
+  if (!spoken && !/[.!?]\s*$/.test(text.trim())) tips.push('End the sentence with a full stop (.) or question mark (?).');
+  if (/\b(very very|so so)\b/i.test(text)) tips.push('Instead of repeating “very”, try a stronger word, e.g. “extremely”, “huge”, “tiny”.');
+  return tips;
+}
+async function handleAnswer(raw, alts) {
+  if (!T.cur || T.busy) return;
+  const spoken = !!alts;
+  const text = spoken ? prepSpoken(raw) : raw.trim();
+  if (!text) return;
+  T.busy = true;
+  addMsg({ who: 'me', html: esc(text), spoken });
+  addMsg({ who: 'fb', html: '<span class="src">Checking…</span>', pending: true });
+  drawTalk();
+  const cur = T.cur; cur.tries++;
+  const parts = []; let ok = true;
+  // 1. word use + pronunciation
+  for (const x of cur.words) {
+    const used = usesWord(text, x.w);
+    if (used) parts.push(`<div class="fbline good">✓ You used <b>${esc(x.w)}</b>.</div>`);
+    else if (spoken && alts.slice(1).some(a => usesWord(a, x.w))) {
+      ok = false;
+      parts.push(`<div class="fbline warn">≈ The phone was not sure it heard <b>${esc(x.w)}</b>. Say it more clearly.</div>${pronCoach(x)}`);
+    } else if (spoken) {
+      ok = false;
+      parts.push(`<div class="fbline bad">✗ The phone did not hear <b>${esc(x.w)}</b>. If you said it, the sound may need work. Listen and try again.</div>${pronCoach(x)}`);
+    } else {
+      ok = false;
+      parts.push(`<div class="fbline bad">✗ Your sentence does not use <b>${esc(x.w)}</b>. Try again with this word.</div>`);
+    }
+  }
+  if (spoken) parts.push(`<div class="src">The phone heard: “${esc(raw)}”</div>`);
+  // 2. grammar (online)
+  const matches = await grammarCheck(text);
+  if (matches === null) {
+    if (S.settings.grammar !== false) parts.push('<div class="src">Grammar check needs internet. Skipped this time.</div>');
+  } else {
+    const real = matches.filter(m => { const cat = m.rule?.category?.id || '', id = m.rule?.id || '';
+      return !(spoken && (/CASING|PUNCTUATION|TYPOGRAPHY|WHITESPACE/.test(cat) || id.startsWith('MORFOLOGIK'))); });
+    if (!real.length) parts.push('<div class="fbline good">✓ No grammar problems found.</div>');
+    else {
+      ok = false;
+      parts.push(`<div class="fbline warn">Grammar: ${real.length === 1 ? '1 thing to fix' : real.length + ' things to fix'}</div>
+        <div class="gsent">${markErrors(text, real)}</div>
+        <ul class="glist">${real.slice(0, 4).map(m => `<li>${esc(m.message)}${m.replacements && m.replacements[0] ? ` → <b>${esc(m.replacements[0].value)}</b>` : ''}</li>`).join('')}</ul>
+        <div class="fbline">Better: <b class="better">${esc(applyFixes(text, real))}</b> <button class="say mini" data-saytxt="${esc(applyFixes(text, real))}" aria-label="Hear the corrected sentence">${ICON_SPEAK}</button></div>`);
+    }
+  }
+  // 3. sentence tips (offline)
+  const tips = styleTips(text, spoken);
+  if (tips.length) parts.push(`<div class="fbline">Tip: ${tips.map(esc).join(' ')}</div>`);
+  const fb = T.msgs.find(m => m.pending); fb.pending = false; fb.html = parts.join('');
+  T.done++; logAct('talk');
+  cur.words.forEach(x => { if (usesWord(text, x.w)) T.used++; });
+  T.busy = false;
+  if (ok) {
+    const nice = pick(TALK_PRAISE);
+    drawTalk(); setTimeout(() => askNext(nice), 700);
+  } else {
+    T.retry = true; drawTalk();
+  }
+}
+function pronCoach(x) {
+  const arp = x.c || arpOf(x.w); const p = arp ? Pron.build(arp) : null;
+  return `<div class="coach"><button class="say mini" data-saytxt="${esc(x.w)}" data-slow="1" aria-label="Hear ${esc(x.w)} slowly">${ICON_SPEAK}</button>
+    <span><b>${esc(x.w)}</b>${p ? ` — say <span class="rsmini">${esc(Pron.respellText(p))}</span> · <span class="ar">${esc(Pron.arabicText(p))}</span>` : ''}</span></div>`;
+}
+
+/* -- view -- */
+function viewTalk(v) {
+  setTitle('Talk', 'Practise speaking with your words');
+  const tags = [...new Set([...S.mine.values()].flatMap(r => r.tags || []))];
+  if (!T.msgs.length) {
+    const n = S.mine.size;
+    addMsg({ who: 'app', html: esc(n ? `Hi! Let's practise. I will ask you short questions using your ${n} saved words. Answer by speaking (tap the microphone) or by typing. I will check your words, your pronunciation and your grammar.` : `Hi! You have no saved words yet, so I will use common English words. Save words from Search and I will use them here.`) });
+    T.cur = null;
+  }
+  v.innerHTML = `
+    <div class="talkbar">
+      <div class="chips scroll">${['', ...tags].map(t => `<button class="chip ${T.topic === t ? 'on' : ''}" data-topic="${esc(t)}">${t ? esc(t) : 'All my words'}</button>`).join('')}</div>
+      <div class="talkstats src">${T.done} answers · ${T.used} words used</div>
+    </div>
+    <div id="chat" class="chat" aria-live="polite"></div>
+    <form id="composer" class="composer" autocomplete="off">
+      <input id="tin" placeholder="Type your answer…" aria-label="Type your answer" autocapitalize="sentences">
+      <button type="submit" class="send" aria-label="Send">➤</button>
+      <button type="button" class="tmic" aria-label="Speak your answer">${ICON_MIC}</button>
+    </form>`;
+  $$('[data-topic]', v).forEach(b => b.onclick = () => { T.topic = b.dataset.topic; addMsg({ who: 'app', html: esc(T.topic ? `OK, only words tagged “${T.topic}”.` : 'OK, all your words.') }); T.cur = null; viewTalk(v); askNext(); });
+  $('#composer', v).onsubmit = e => { e.preventDefault(); const i = $('#tin', v); const t = i.value; i.value = ''; handleAnswer(t, null); };
+  const mic = $('.tmic', v);
+  mic.onclick = async () => {
+    if (T.busy) return;
+    try { speechSynthesis && speechSynthesis.cancel(); } catch (e) { }
+    mic.classList.add('live');
+    try { const alts = await listen(S.settings.accent, { alts: 5 }); if (alts[0]) handleAnswer(alts[0], alts); else toast('Did not catch that. Try again.'); }
+    catch (e) { micError(e); }
+    mic.classList.remove('live');
+  };
+  drawTalk();
+  if (!T.cur) askNext();
+}
+function drawTalk() {
+  const chat = $('#chat'); if (!chat) return;
+  const ts = $('.talkstats'); if (ts) ts.textContent = `${T.done} answers · ${T.used} words used`;
+  chat.innerHTML = T.msgs.map(m => {
+    if (m.who === 'app') return `<div class="bub app"><div>${m.html}</div>
+      <div class="bubtools">${m.say ? `<button class="say mini" data-saytxt="${esc(m.say)}" aria-label="Hear again">${ICON_SPEAK}</button>` : ''}
+      ${m.hintWords ? m.hintWords.map(x => `<button class="chip hint" data-open="${esc(x.w)}">${esc(x.w)} · <span class="ar">${esc((x.a || '').split(/[،؛]/)[0])}</span></button>`).join('') : ''}
+      ${m.arHint ? `<button class="chip hint" data-reveal="${esc(m.arHint.w)}">Show the word</button>` : ''}</div></div>`;
+    if (m.who === 'me') return `<div class="bub me">${m.spoken ? '🎙 ' : ''}${m.html}</div>`;
+    return `<div class="bub fb">${m.html}</div>`;
+  }).join('') + (T.retry && T.cur ? `<div class="retry"><button class="btn" data-act="tryagain">Try again</button><button class="btn" data-act="skip">Next question</button></div>` : '');
+  $$('[data-saytxt]', chat).forEach(b => b.onclick = () => speak(b.dataset.saytxt, { slow: !!b.dataset.slow }));
+  $$('[data-open]', chat).forEach(b => b.onclick = () => openWord(b.dataset.open));
+  $$('[data-reveal]', chat).forEach(b => b.onclick = () => { b.outerHTML = `<button class="chip hint" data-open="${esc(b.dataset.reveal)}">${esc(b.dataset.reveal)}</button>`; drawTalk(); });
+  const ta = $('[data-act=tryagain]', chat); if (ta) ta.onclick = () => { T.retry = false; addMsg({ who: 'app', html: esc('Try again: ' + T.cur.text), say: T.cur.text, hintWords: T.cur.type === 'ar' ? null : T.cur.words }); drawTalk(); talkSay(T.cur.text); };
+  const sk = $('[data-act=skip]', chat); if (sk) sk.onclick = () => { T.retry = false; askNext(); };
+  chat.lastElementChild && chat.lastElementChild.scrollIntoView({ block: 'end', behavior: 'smooth' });
+}
+
 /* ---------- settings ---------- */
 function seg(key, opts) { return `<div class="seg">${opts.map(([k, l]) => `<button data-k="${key}" data-v="${k}" class="${String(S.settings[key]) === String(k) ? 'on' : ''}">${l}</button>`).join('')}</div>`; }
 function viewSettings(v) {
@@ -977,6 +1201,10 @@ function viewSettings(v) {
     <section class="set"><h2>Online lookup</h2>
       <div class="opt"><span>Look up words online when the phone has no meaning</span>${seg('online', [['true', 'On'], ['false', 'Off']])}</div>
       <p class="about">Uses MyMemory (translation) and Free Dictionary (English meaning, example, pronunciation). Only the word you type is sent. Your saved words stay on the phone.</p>
+    </section>
+    <section class="set"><h2>Talk practice</h2>
+      <div class="opt"><span>Read questions aloud</span>${seg('talkVoice', [['true', 'On'], ['false', 'Off']])}</div>
+      <div class="opt"><span>Online grammar check<br><span class="src">Your answers are sent to LanguageTool to check grammar</span></span>${seg('grammar', [['true', 'On'], ['false', 'Off']])}</div>
     </section>
     <section class="set"><h2>Review</h2>
       <div class="opt"><span>Card direction</span>${seg('dir', [['en-ar', 'EN→AR'], ['ar-en', 'AR→EN'], ['mix', 'Both']])}</div>
@@ -1002,16 +1230,17 @@ function viewSettings(v) {
       <p class="about">${S.mine.size} words saved on this phone${DB.ok ? '' : ' (temporary storage — export a backup)'}. Export a backup from time to time, and before changing phone.</p>
     </section>
     <section class="set"><h2>About</h2>
-      <p class="about">Kalimati (كلماتي) — your private English–Arabic dictionary. Version 2.5.<br>
+      <p class="about">Kalimati (كلماتي) — your private English–Arabic dictionary. Version 2.6.<br>
       Built-in list: ${S.core.length.toLocaleString()} words with checked Arabic meanings — ${S.core.filter(e => !e.k).length.toLocaleString()} common English words and ${S.core.filter(e => e.k).length} oil &amp; gas and process terms, written for this app.<br>
       Extra suggested meanings (not checked): FreeDict / Arabeyes English–Arabic word list (GPL), about 85,000 words.<br>
       Online lookup (when on): MyMemory for translations, Free Dictionary API for English meanings, examples and pronunciation.<br>
+      Grammar check in Talk: LanguageTool (online, when on).<br>
       Camera text reading: Tesseract.js (Apache 2.0), runs on the phone.<br>
       Written pronunciation: CMU Pronouncing Dictionary (US English). Sound: your phone's text-to-speech voices.</p>
     </section>`;
   $$('[data-k]', v).forEach(b => b.onclick = () => {
     const k = b.dataset.k; let val = b.dataset.v;
-    if (k === 'slow') val = parseFloat(val); if (k === 'autoplay' || k === 'online') val = val === 'true'; if (k === 'goal') val = parseInt(val, 10);
+    if (k === 'slow') val = parseFloat(val); if (k === 'autoplay' || k === 'online' || k === 'talkVoice' || k === 'grammar') val = val === 'true'; if (k === 'goal') val = parseInt(val, 10);
     S.settings[k] = val; saveSettings(); applyTheme(); viewSettings(v);
   });
   $$('[data-style-pick]', v).forEach(b => b.onclick = () => { S.settings.style = b.dataset.stylePick; saveSettings(); applyTheme(); viewSettings(v); toast('Design changed'); });
