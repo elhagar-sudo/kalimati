@@ -423,3 +423,12 @@ mark.gerr{background:color-mix(in srgb, var(--danger) 22%, transparent);color:in
 .composer .send{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--accent);font-size:18px}
 .composer .tmic{width:52px;height:52px;border-radius:50%;border:0;background:var(--accent);color:var(--on-accent);display:grid;place-items:center}
 .composer .tmic svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---- v2.7: US and UK pronunciation ---- */
+.pron .line{align-items:flex-start;margin:6px 0}
+.pron .lbl{padding-top:4px}
+.accs{display:flex;flex-direction:column;gap:2px;min-width:0}
+.acc{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.acctag{flex:none;font:700 11px/1 var(--ui);color:var(--accent);background:var(--soft);border:0;border-radius:6px;padding:4px 6px;min-width:34px;text-align:center}
+button.acctag{cursor:pointer}
+.ipa-line .line{margin-top:6px}

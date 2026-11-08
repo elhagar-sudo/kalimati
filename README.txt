@@ -1,4 +1,4 @@
-KALIMATI — My English–Arabic Dictionary (version 2.6)
+KALIMATI — My English–Arabic Dictionary (version 2.7)
 
 HOW TO PUT IT ON YOUR PHONE (free, about 10 minutes)
 The app must be hosted on an https web address once. After that it installs
@@ -38,6 +38,12 @@ NEW IN VERSION 2
    calendar and alerts you every day).
  - Share backup straight to Google Drive, email or WhatsApp.
  - Oil & gas and process word pack (225 terms), on the Search screen.
+
+NEW IN VERSION 2.7
+ - Pronunciation now shows US and UK: respelling, Arabic letters and IPA.
+   Tap the US or UK tag to hear that accent. Your accent in Settings is
+   shown first. UK forms are worked out from the US dictionary with
+   standard rules (silent r, /ɒ/, /əʊ/, ...); a few words may differ.
 
 NEW IN VERSION 2.6
  - Talk: practice conversation built from your saved words. Answer by

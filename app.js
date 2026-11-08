@@ -92,26 +92,38 @@ function arpOf(word) {
   return null;
 }
 function pronHTML(rec, opts = {}) {
-  // rec: { w, c?, pr? (manual override {rs, ar, ipa}) }
+  // rec: { w, c?, pr? (manual override {rs, ar, ipa}) }. Shows US and UK; the accent chosen in Settings comes first.
   const arp = rec.c || arpOf(rec.w);
-  const p = arp ? Pron.build(arp) : null;
   const manual = rec.pr || {};
-  const sylSpan = (field) => p.words.map(w => w.syl.map((s, i) => {
+  const hasManual = manual.rs || manual.ar || manual.ipa;
+  const P = arp ? { US: Pron.build(arp, { spell: rec.w }), UK: Pron.build(arp, { uk: true, spell: rec.w }) } : null;
+  const sylSpan = (p, field) => p.words.map(w => w.syl.map((s, i) => {
     const sep = i && !(field === 'ar' && s.join) ? '<span class="sep">-</span>' : '';
     const txt = field === 'rs' && s.stress === 1 ? s.rs.toUpperCase() : s[field];
     return sep + `<span class="syl${s.stress === 1 ? ' st' : ''}">${esc(txt)}</span>`;
   }).join('')).join(' ');
-  const rs = manual.rs ? esc(manual.rs) : p ? sylSpan('rs') : '';
-  const ar = manual.ar ? esc(manual.ar) : p ? sylSpan('ar') : '';
-  const ipa = manual.ipa ? esc(manual.ipa) : p ? esc(Pron.ipaText(p)) : '';
-  if (!rs && !ar && !ipa) return opts.compact ? '' : `<div class="pron"><span class="src">No written pronunciation for this word yet. Tap Edit to add one.</span></div>`;
+  if (!P && !hasManual) return opts.compact ? '' : `<div class="pron"><span class="src">No written pronunciation for this word yet. Tap Edit to add one.</span></div>`;
+  const order = S.settings.accent === 'en-GB' ? ['UK', 'US'] : ['US', 'UK'];
+  const word = esc(rec.w);
+  const accLine = (cls, vals) => {
+    // vals: {US: html, UK: html}; one line when both are the same
+    if (vals.US === vals.UK) return `<div class="acc"><span class="acctag">US · UK</span><span class="${cls}">${vals.US}</span></div>`;
+    return order.map(k => `<div class="acc"><button class="acctag" data-accsay="${k === 'UK' ? 'en-GB' : 'en-US'}" data-w="${word}" aria-label="Hear ${k} pronunciation">${k} ▸</button><span class="${cls}">${vals[k]}</span></div>`).join('');
+  };
+  const row = (label, cls, field, manualVal) => {
+    if (manualVal) return `<div class="line"><span class="lbl">${label}</span><div class="accs"><div class="acc"><span class="acctag">Mine</span><span class="${cls}">${esc(manualVal)}</span></div></div></div>`;
+    if (!P) return '';
+    const vals = field === 'ipa' ? { US: esc(Pron.ipaText(P.US)), UK: esc(Pron.ipaText(P.UK)) } : { US: sylSpan(P.US, field), UK: sylSpan(P.UK, field) };
+    return `<div class="line"><span class="lbl">${label}</span><div class="accs">${accLine(cls, vals)}</div></div>`;
+  };
+  const ipaRow = row('IPA', 'ipa', 'ipa', manual.ipa);
   return `<div class="pron">
-    ${rs ? `<div class="line"><span class="lbl">Say it</span><span class="rs">${rs}</span></div>` : ''}
-    ${ar ? `<div class="line"><span class="lbl">بالعربي</span><span class="arp">${ar}</span></div>` : ''}
-    ${ipa ? `<div class="line ipa-line" ${opts.showIpa ? '' : 'hidden'}><span class="lbl">IPA (US)</span><span class="ipa">${ipa}</span></div>
-    ${opts.showIpa ? '' : '<button class="more" data-act="ipa">Show IPA</button>'}` : ''}
+    ${row('Say it', 'rs', 'rs', manual.rs)}
+    ${row('بالعربي', 'arp', 'ar', manual.ar)}
+    ${ipaRow ? `<div class="ipa-line" ${opts.showIpa ? '' : 'hidden'}>${ipaRow}</div>${opts.showIpa ? '' : '<button class="more" data-act="ipa">Show IPA</button>'}` : ''}
   </div>`;
 }
+document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-accsay]'); if (b) { e.stopPropagation(); speak(b.dataset.w, { lang: b.dataset.accsay }); } });
 
 /* ---------------- speech ---------------- */
 let voices = [];
@@ -1129,9 +1141,10 @@ async function handleAnswer(raw, alts) {
   }
 }
 function pronCoach(x) {
-  const arp = x.c || arpOf(x.w); const p = arp ? Pron.build(arp) : null;
+  const arp = x.c || arpOf(x.w); const p = arp ? Pron.build(arp, { spell: x.w }) : null;
   return `<div class="coach"><button class="say mini" data-saytxt="${esc(x.w)}" data-slow="1" aria-label="Hear ${esc(x.w)} slowly">${ICON_SPEAK}</button>
-    <span><b>${esc(x.w)}</b>${p ? ` — say <span class="rsmini">${esc(Pron.respellText(p))}</span> · <span class="ar">${esc(Pron.arabicText(p))}</span>` : ''}</span></div>`;
+    <span><b>${esc(x.w)}</b>${p ? (() => { const k = Pron.build(arp, { uk: true, spell: x.w }); const us = `US <span class="rsmini">${esc(Pron.respellText(p))}</span> · <span class="ar">${esc(Pron.arabicText(p))}</span>`, uk = `UK <span class="rsmini">${esc(Pron.respellText(k))}</span> · <span class="ar">${esc(Pron.arabicText(k))}</span>`;
+      return ' — ' + (Pron.respellText(p) === Pron.respellText(k) ? us.replace('US ', '') : (S.settings.accent === 'en-GB' ? uk + '<br>' + us : us + '<br>' + uk)); })() : ''}</span></div>`;
 }
 
 /* -- view -- */
@@ -1230,13 +1243,13 @@ function viewSettings(v) {
       <p class="about">${S.mine.size} words saved on this phone${DB.ok ? '' : ' (temporary storage — export a backup)'}. Export a backup from time to time, and before changing phone.</p>
     </section>
     <section class="set"><h2>About</h2>
-      <p class="about">Kalimati (كلماتي) — your private English–Arabic dictionary. Version 2.6.<br>
+      <p class="about">Kalimati (كلماتي) — your private English–Arabic dictionary. Version 2.7.<br>
       Built-in list: ${S.core.length.toLocaleString()} words with checked Arabic meanings — ${S.core.filter(e => !e.k).length.toLocaleString()} common English words and ${S.core.filter(e => e.k).length} oil &amp; gas and process terms, written for this app.<br>
       Extra suggested meanings (not checked): FreeDict / Arabeyes English–Arabic word list (GPL), about 85,000 words.<br>
       Online lookup (when on): MyMemory for translations, Free Dictionary API for English meanings, examples and pronunciation.<br>
       Grammar check in Talk: LanguageTool (online, when on).<br>
       Camera text reading: Tesseract.js (Apache 2.0), runs on the phone.<br>
-      Written pronunciation: CMU Pronouncing Dictionary (US English). Sound: your phone's text-to-speech voices.</p>
+      Written pronunciation: CMU Pronouncing Dictionary (US English); UK forms are worked out from it with standard rules. Sound: your phone's text-to-speech voices.</p>
     </section>`;
   $$('[data-k]', v).forEach(b => b.onclick = () => {
     const k = b.dataset.k; let val = b.dataset.v;
@@ -1299,10 +1312,10 @@ function calendarReminder(hm) {
 function exportJSON() { download(`kalimati-backup-${stamp()}.json`, backupText(), 'application/json'); toast('Backup file exported'); }
 function csvCell(s) { s = String(s ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
 function exportCSV() {
-  const rows = [['word', 'meaning', 'tags', 'note', 'example', 'part of speech', 'pronunciation', 'status', 'added']];
+  const rows = [['word', 'meaning', 'tags', 'note', 'example', 'part of speech', 'pronunciation (US)', 'pronunciation (UK)', 'status', 'added']];
   for (const r of [...S.mine.values()].sort((a, b) => a.w.localeCompare(b.w))) {
-    const arp = r.c || arpOf(r.w); const p = arp ? Pron.build(arp) : null;
-    rows.push([r.w, r.a, (r.tags || []).join('; '), r.note, r.ex, posText(r.p), r.pr?.rs || (p ? Pron.respellText(p) : ''), STATUS_TXT[status(r)], new Date(r.added).toISOString().slice(0, 10)]);
+    const arp = r.c || arpOf(r.w); const p = arp ? Pron.build(arp, { spell: r.w }) : null; const k = arp ? Pron.build(arp, { uk: true, spell: r.w }) : null;
+    rows.push([r.w, r.a, (r.tags || []).join('; '), r.note, r.ex, posText(r.p), r.pr?.rs || (p ? Pron.respellText(p) : ''), k ? Pron.respellText(k) : '', STATUS_TXT[status(r)], new Date(r.added).toISOString().slice(0, 10)]);
   }
   download(`kalimati-words-${stamp()}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
   toast('Word list exported');

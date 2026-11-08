@@ -54,6 +54,9 @@
       case 'ER': return s === 0 ? 'ər' : 'ɜːr'; case 'EY': return 'eɪ'; case 'IH': return 'ɪ';
       case 'IY': return s === 0 ? 'i' : 'iː'; case 'OW': return 'oʊ'; case 'OY': return 'ɔɪ';
       case 'UH': return 'ʊ'; case 'UW': return s === 0 ? 'u' : 'uː';
+      // UK-only vowels
+      case 'OH': return 'ɒ'; case 'OWX': return 'əʊ'; case 'ERX': return s === 0 ? 'ə' : 'ɜː';
+      case 'IA': return 'ɪə'; case 'EA': return 'eə'; case 'UA': return 'ʊə'; case 'AYA': return 'aɪə'; case 'AWA': return 'aʊə';
     }
     return '';
   }
@@ -74,6 +77,8 @@
       case 'AW': return 'ow'; case 'AY': return noOn ? 'eye' : 'y'; case 'EH': return open ? 'eh' : 'e';
       case 'ER': return x.s === 0 ? 'er' : 'ur'; case 'EY': return 'ay'; case 'IH': return open ? 'ih' : 'i';
       case 'IY': return 'ee'; case 'OW': return 'oh'; case 'OY': return 'oy'; case 'UH': return 'uu'; case 'UW': return 'oo';
+      case 'OH': return 'o'; case 'OWX': return 'oh'; case 'ERX': return x.s === 0 ? 'uh' : 'ur';
+      case 'IA': return 'eeuh'; case 'EA': return 'ehuh'; case 'UA': return 'oouh'; case 'AYA': return noOn ? 'eyeuh' : 'yuh'; case 'AWA': return 'owuh';
     }
     return '';
   }
@@ -101,8 +106,10 @@
       if (open) return { AH: 'ا', EH: 'ي', IH: 'ي', UH: 'و' }[x.v];
       return short[x.v];
     }
-    const longMap = { AA: 'ا', AO: 'و', AW: 'او', AY: 'اي', EY: FATHA + 'ي', IY: 'ي', OW: 'و', OY: 'وي', UW: 'و' };
-    const startMap = { AA: 'آ', AO: 'أو', AW: 'آو', AY: 'آي', EY: 'إي', IY: 'إي', OW: 'أو', OY: 'أوي', UW: 'أو' };
+    if (x.v === 'OH') return noOn ? 'أُ' : open ? 'و' : DAMMA;
+    if (x.v === 'ERX') return (noOn ? 'أ' : '') + (x.s === 0 ? FATHA : KASRA);
+    const longMap = { AA: 'ا', AO: 'و', AW: 'او', AY: 'اي', EY: FATHA + 'ي', IY: 'ي', OW: 'و', OY: 'وي', UW: 'و', OWX: 'و', IA: KASRA + 'يَ', EA: FATHA + 'يَ', UA: DAMMA + 'وَ', AYA: 'ايَ', AWA: 'اوَ' };
+    const startMap = { AA: 'آ', AO: 'أو', AW: 'آو', AY: 'آي', EY: 'إي', IY: 'إي', OW: 'أو', OY: 'أوي', UW: 'أو', OWX: 'أو', IA: 'إيَ', EA: 'إيَ', UA: 'أوَ', AYA: 'آيَ', AWA: 'آوَ' };
     if (x.v === 'ER') return (noOn ? 'أ' : '') + (x.s === 0 ? FATHA : KASRA) + 'ر';
     return noOn ? startMap[x.v] : longMap[x.v];
   }
@@ -110,7 +117,8 @@
     // vowel-initial syllable after a closed syllable: join to the previous one, no hamza
     if (!first && prev && prev.co.length && x.on.length === 0 && x.v) {
       const short = { AH: FATHA, AE: FATHA, EH: KASRA, IH: KASRA, UH: DAMMA, ER: (x.s === 0 ? FATHA : KASRA) + 'ر',
-        AA: 'ا', AO: 'و', AW: 'او', AY: 'اي', EY: FATHA + 'ي', IY: 'ي', OW: 'و', OY: 'وي', UW: 'و' };
+        AA: 'ا', AO: 'و', AW: 'او', AY: 'اي', EY: FATHA + 'ي', IY: 'ي', OW: 'و', OY: 'وي', UW: 'و',
+        OH: DAMMA, ERX: x.s === 0 ? FATHA : KASRA, OWX: 'و', IA: KASRA + 'يَ', EA: FATHA + 'يَ', UA: DAMMA + 'وَ', AYA: 'ايَ', AWA: 'اوَ' };
       let v = short[x.v];
       if (x.co.length === 0 && { AH: 1, AE: 1 }[x.v]) v = 'ا';
       if (x.co.length === 0 && { EH: 1, IH: 1 }[x.v]) v = 'ي';
@@ -120,16 +128,50 @@
     return { t: x.on.map(c => AR_C[c]).join('') + (x.v ? arV(x, first) : '') + x.co.map(c => AR_C[c]).join(''), join: false };
   }
 
+  // ---------- British (UK) version, worked out from the US phones with standard rules ----------
+  const BATH = new Set(['ask','asked','asking','after','afternoon','afterwards','last','fast','faster','past','class','classes','pass','passed','passenger','path','bath','grass','glass','castle','master','task','plaster','vast','cast','mask','rather','laugh','half','calf','staff','graph','draft','craft','aircraft','branch','chance','dance','answer','example','sample','plant','grant','demand','command','advance','advantage','disaster','nasty','fasten','ghastly','basket','mast','raft','shaft','can\'t','aunt','banana','tomato','drama','pasta','vase']);
+  function ukify(syl, spell) {
+    const w = (spell || '').toLowerCase();
+    const hasO = /o/.test(w) || /(^|[^a-z])(w|qu|wh)a/.test(w) || /^(wa|qua|wha)|[^s]wa/.test(w);
+    const auSpell = /(au|aw|al|ough|or|oar|our|oor|ore)/.test(w);
+    const out = syl.map(x => ({ ...x, on: [...x.on], co: [...x.co] }));
+    out.forEach((x, i) => {
+      if (!x.v) return;
+      const next = out[i + 1];
+      const vowelNext = next && next.on.length === 0; // UK keeps r before a vowel (very, operator)
+      const ri = x.co.indexOf('R');
+      const silentR = ri >= 0 && !(ri === x.co.length - 1 && vowelNext);
+      if (x.v === 'ER') { if (!(vowelNext && !x.co.length)) x.v = 'ERX'; }
+      else if (silentR) {
+        x.co.splice(ri, 1);
+        x.v = ({ AA: 'AA', AO: 'AO', IH: 'IA', IY: 'IA', EH: 'EA', EY: 'EA', AE: 'EA', UH: 'UA', UW: 'UA', AY: 'AYA', AW: 'AWA', AH: 'ERX', OW: 'AO' })[x.v] || x.v;
+      } else if (x.v === 'OW') x.v = 'OWX';
+      else if (x.v === 'AA') x.v = hasO ? 'OH' : 'AA';
+      else if (x.v === 'AO') x.v = auSpell ? 'AO' : 'OH';
+      else if ((x.v === 'AE' || x.v === 'EY') && x.s === 1 && BATH.has(w)) x.v = 'AA';
+      if (x.v === 'UW' && x.s >= 1 && x.on.length && ['T', 'D', 'N'].includes(x.on[x.on.length - 1]) && !x.on.includes('R') && /(t|d|n)(u|ew|eu)/.test(w)) x.on.push('Y');
+    });
+    return out;
+  }
+
   /* Returns { words: [ { syl:[{rs, ar, stress}], ipa } ] } for an arpabet string.
      Multiple words are separated by '|'. */
-  function build(arpAll) {
+  function build(arpAll, opts = {}) {
     if (!arpAll) return null;
-    const words = arpAll.split('|').map(a => {
-      const syl = syllabify(parse(a));
+    const spells = String(opts.spell || '').split(/[\s-]+/);
+    const words = arpAll.split('|').map((a, wi) => {
+      let syl = syllabify(parse(a));
+      if (opts.uk) syl = ukify(syl, spells[wi] || spells[0]);
       const multi = syl.length > 1;
       return {
         ipa: wordIPA(syl),
-        syl: syl.map((x, i) => { const a = sylAR(x, i === 0, syl[i - 1]); return { rs: sylRS(x), ar: a.t, join: a.join, stress: multi ? x.s : 1 }; })
+        syl: syl.map((x, i) => {
+          const a = sylAR(x, i === 0, syl[i - 1]);
+          let ar = a.t;
+          // UK: a final open "uh" sound is shown with ه, e.g. water -> وو-تَه
+          if (opts.uk && i === syl.length - 1 && !x.co.length && /[\u064E]$/.test(ar)) ar += 'ه';
+          return { rs: sylRS(x), ar, join: a.join, stress: multi ? x.s : 1 };
+        })
       };
     });
     return { words };
