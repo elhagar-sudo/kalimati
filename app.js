@@ -4,6 +4,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const DAY = 86400000;
+const APP_VERSION = '2.8';
 const DEFAULT_TAGS = ['Work', 'Daily life', 'Travel'];
 const POS_NAMES = { n: 'noun', v: 'verb', adj: 'adjective', adv: 'adverb', prep: 'preposition', conj: 'conjunction', pron: 'pronoun', det: 'determiner', int: 'expression', num: 'number' };
 
@@ -24,7 +25,7 @@ const DB = (() => {
     if (!db) return Promise.resolve(fn(null));
     return new Promise((res, rej) => {
       const t = db.transaction(store, mode); const s = t.objectStore(store);
-      const out = fn(s); t.oncomplete = () => res(out instanceof IDBRequest ? out.result : out); t.onerror = () => rej(t.error);
+      const out = fn(s); t.oncomplete = () => res(out instanceof IDBRequest ? out.result : out); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error('abort'));
     });
   }
   return {
@@ -64,7 +65,7 @@ const isAr = s => /[؀-ۿ]/.test(s);
 function normAr(s) {
   return String(s || '').replace(/[ً-ٰٟـ]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي').trim();
 }
-const normEn = s => String(s || '').toLowerCase().replace(/[’`]/g, "'").replace(/[^a-z' -]/g, '').replace(/\s+/g, ' ').trim();
+const normEn = s => String(s || '').toLowerCase().replace(/[’`]/g, "'").replace(/[^a-z0-9' -]/g, '').replace(/\s+/g, ' ').trim();
 const idOf = w => normEn(w);
 function lemmas(w) {
   const out = [w];
@@ -102,7 +103,7 @@ function pronHTML(rec, opts = {}) {
     const txt = field === 'rs' && s.stress === 1 ? s.rs.toUpperCase() : s[field];
     return sep + `<span class="syl${s.stress === 1 ? ' st' : ''}">${esc(txt)}</span>`;
   }).join('')).join(' ');
-  if (!P && !hasManual) return opts.compact ? '' : `<div class="pron"><span class="src">No written pronunciation for this word yet. Tap Edit to add one.</span></div>`;
+  if (!P && !hasManual) return opts.compact ? '' : `<div class="pron"><span class="src">No written pronunciation for this word yet. You can write one when you save or edit the word.</span></div>`;
   const order = S.settings.accent === 'en-GB' ? ['UK', 'US'] : ['US', 'UK'];
   const word = esc(rec.w);
   const accLine = (cls, vals) => {
@@ -364,16 +365,45 @@ function bindRows(root) {
   $$('[data-open]', root).forEach(b => b.onclick = () => openWord(b.dataset.open));
   $$('[data-say]', root).forEach(b => b.onclick = e => { e.stopPropagation(); speak(b.dataset.say); });
 }
-function sheet(title, html, { right = '' } = {}) {
+/* Sheets stack: opening a word from a photo, a pack or a sentence keeps the list underneath, and Back returns to it. */
+const sheetStack = []; let sheetCur = {}, sheetSeq = 0, closeTimer = null, skipPop = false, popN = 1;
+function sheet(title, html, { right = '', refresh = null, onBack = null, replace = false } = {}) {
   const sh = $('#sheet');
+  if (!sh.hidden && !replace) {
+    const frag = document.createDocumentFragment(); const top = sh.scrollTop;
+    while (sh.firstChild) frag.appendChild(sh.firstChild);
+    sheetStack.push({ frag, top, ...sheetCur });
+    history.pushState({ sheet: sheetStack.length + 1 }, '');
+  } else if (sh.hidden) history.pushState({ sheet: 1 }, '');
+  sheetCur = { refresh, onBack };
   sh.innerHTML = `<div class="bar"><button data-act="close">‹ Back</button><strong>${esc(title)}</strong><span>${right}</span></div><div class="body">${html}</div>`;
   sh.hidden = false; sh.scrollTop = 0;
-  $('[data-act=close]', sh).onclick = closeSheet;
-  if (!history.state || !history.state.sheet) history.pushState({ sheet: 1 }, '');
+  $('[data-act=close]', sh).onclick = () => closeSheet();
   return $('.body', sh);
 }
-function closeSheet(fromPop) { const sh = $('#sheet'); if (sh.hidden) return; sh.hidden = true; sh.innerHTML = ''; if (fromPop !== true && history.state && history.state.sheet) history.back(); render(); }
-window.addEventListener('popstate', () => closeSheet(true));
+function closeSheet(n) {
+  const sh = $('#sheet'); if (sh.hidden) return;
+  n = Math.max(1, Math.min(typeof n === 'number' ? n : 1, sheetStack.length + 1)); // n = how many levels to close
+  if (history.state && history.state.sheet) {
+    // go through the browser history so the phone Back button and the on-screen Back stay in step
+    const mark = sheetSeq; popN = n; history.go(-n);
+    clearTimeout(closeTimer); closeTimer = setTimeout(() => { if (mark === sheetSeq) { skipPop = true; popN = 1; for (let i = 0; i < n; i++) doClose(); } }, 500);
+    return;
+  }
+  for (let i = 0; i < n; i++) doClose();
+}
+function doClose() {
+  sheetSeq++; clearTimeout(closeTimer);
+  const sh = $('#sheet'); if (sh.hidden) return;
+  try { speechSynthesis.cancel(); } catch (e) { }
+  const prev = sheetStack.pop();
+  if (!prev) { sh.hidden = true; sh.innerHTML = ''; sheetCur = {}; render(); return; }
+  sheetCur = { refresh: prev.refresh, onBack: prev.onBack };
+  if (prev.refresh) { prev.refresh(); return; }
+  sh.innerHTML = ''; sh.appendChild(prev.frag); sh.scrollTop = prev.top;
+  if (prev.onBack) prev.onBack();
+}
+window.addEventListener('popstate', () => { if (skipPop) { skipPop = false; return; } const k = popN; popN = 1; for (let i = 0; i < k; i++) doClose(); });
 
 /* ---------------- views ---------------- */
 function render() {
@@ -396,18 +426,21 @@ function viewSearch(v) {
     inp.dir = isAr(q) ? 'rtl' : 'ltr';
     if (!q) {
       const recent = [...S.mine.values()].sort((a, b) => b.added - a.added).slice(0, 8);
-      out.innerHTML = `<div class="homestats"><button data-go="review"><b>${streak()}</b><small>Day streak</small></button><button data-go="review"><b>${dueList().length}</b><small>Due today</small></button><button data-go="mine"><b>${S.mine.size}</b><small>My words</small></button></div><p class="hint">Type a word in English or Arabic. Tap a word to hear it, see how to say it, and save it to your words.</p>` +
+      const bdays = backupAgeDays();
+      const bnote = S.mine.size >= 10 && bdays >= 30 ? `<button class="notice" data-act="backup"><b>Back up your words</b><span>${S.mine.size} words are saved on this phone only${S.settings.lastBackup ? `, last backup ${bdays} days ago` : ' and there is no backup yet'}. Tap to send a backup to Google Drive or email.</span></button>` : '';
+      out.innerHTML = bnote + `<div class="homestats"><button data-go="review"><b>${streak()}</b><small>Day streak</small></button><button data-go="review"><b>${dueList().length}</b><small>Due today</small></button><button data-go="mine"><b>${S.mine.size}</b><small>My words</small></button></div><p class="hint">Type a word in English or Arabic. Tap a word to hear it, see how to say it, and save it to your words.</p>` +
         (recent.length ? `<div class="group-h">Recently added</div><ul class="list">${recent.map(r => rowHTML(r, 'mine')).join('')}</ul>` :
           `<div class="empty"><p>Your dictionary is empty. Add the first word you heard today.</p><button class="btn primary" data-act="add">Add a word</button></div>`);
       out.insertAdjacentHTML('beforeend', Object.entries(PACKS).map(([k, p]) => `<div class="group-h">Word packs</div><button class="pack" data-pack="${k}"><span><b>${esc(p.name)}</b><br><span class="ar">${esc(p.ar)}</span></span><span class="src">${S.core.filter(e => e.k === k).length} terms ›</span></button>`).join(''));
       $$('[data-pack]', out).forEach(b => b.onclick = () => openPack(b.dataset.pack));
       $$('[data-go]', out).forEach(b => b.onclick = () => { S.tab = b.dataset.go; render(); window.scrollTo(0, 0); });
       const b = $('[data-act=add]', out); if (b) b.onclick = () => openAdd();
+      const bk = $('[data-act=backup]', out); if (bk) bk.onclick = shareBackup;
       bindRows(out); return;
     }
-    const { res, sug } = isAr(q) ? searchAr(q) : searchEn(normEn(q));
-    let html = '';
     const found = isAr(q) ? searchAr(q) : null;
+    const { res, sug } = found || searchEn(normEn(q));
+    let html = '';
     const resHTML = res.length ? `<ul class="list">${res.map(x => rowHTML(x.rec, x.src)).join('')}</ul>` : '';
     const sugHTML = sug.length ? `<div class="group-h">More words (open dictionary — meaning not checked)</div><ul class="list">${sug.map(r => rowHTML(r, 'lex')).join('')}</ul>` : '';
     html += found && found.lexFirst ? sugHTML + (resHTML ? '<div class="group-h">Built-in list</div>' + resHTML : '') : resHTML + sugHTML;
@@ -479,7 +512,7 @@ function viewMine(v) {
 }
 
 /* ---------- word detail ---------- */
-function openWord(w) {
+function openWord(w, o = {}) {
   let id = normEn(w);
   if (!S.mine.has(id) && !S.coreMap.has(id) && !(S.lex && S.lex[id] && S.lex[id][0])) { const h = lookup(id); if (h) id = h.lemma; }
   const mine = S.mine.get(id);
@@ -498,8 +531,8 @@ function openWord(w) {
         ${S.settings.accent === 'en-US' ? '<button class="chip" data-act="uk">Hear UK</button>' : '<button class="chip" data-act="us">Hear US</button>'}
       </div>
       ${pronHTML(rec)}
-      ${rec.a ? `<div class="meaning">${esc(rec.a)}</div>` : '<div class="warnbox">No Arabic meaning yet. Tap Edit to add it.</div>'}
-      ${src === 'lex' ? '<div class="warnbox">This meaning comes from an open dictionary and is not checked. Correct it when you save the word.</div>' : ''}
+      ${rec.a ? `<div class="meaning">${esc(rec.a)}</div>` : `<div class="warnbox">${mine ? 'No Arabic meaning yet. Tap Edit to add it.' : 'This word is not in the phone dictionary. Tap Save to look it up online and add the meaning.'}</div>`}
+      ${src === 'lex' && rec.a ? '<div class="warnbox">This meaning comes from an open dictionary and is not checked. Correct it when you save the word.</div>' : ''}
       ${forms ? `<div class="section"><h3>Verb forms</h3><div class="forms">${esc(rec.w)} · ${esc(forms[0])} · ${esc(forms[1])}</div></div>` : ''}
       <div class="section practice"><h3>Practise saying it</h3>
         <div class="chips"><button class="chip ico" data-act="check">${ICON_MIC}Check my pronunciation</button>
@@ -514,20 +547,20 @@ function openWord(w) {
         ${mine ? `<button class="btn primary" data-act="edit">Edit</button><button class="btn danger" data-act="del">Remove from my words</button>`
         : `<button class="btn primary wide" data-act="save">Save to my words</button>`}
       </div>
-    </div>`);
+    </div>`, { refresh: () => openWord(id, { replace: true }), replace: !!o.replace });
   $('[data-act=say]', body).onclick = () => speak(rec.w);
   $('[data-act=slow]', body).onclick = () => speak(rec.w, { slow: true });
   const uk = $('[data-act=uk]', body); if (uk) uk.onclick = () => speak(rec.w, { lang: 'en-GB' });
   const us = $('[data-act=us]', body); if (us) us.onclick = () => speak(rec.w, { lang: 'en-US' });
   bindIpa(body);
   const ed = $('[data-act=edit]', body); if (ed) ed.onclick = () => openAdd(mine, true);
-  const sv = $('[data-act=save]', body); if (sv) sv.onclick = () => openAdd({ w: rec.w, a: rec.a, p: rec.p, c: rec.c });
+  const sv = $('[data-act=save]', body); if (sv) sv.onclick = () => openAdd({ w: rec.w, a: rec.a, p: rec.p, c: rec.c }, false, { closeParent: true });
   const dl = $('[data-act=del]', body); if (dl) dl.onclick = async () => {
     if (!dl.dataset.sure) { dl.dataset.sure = '1'; dl.textContent = 'Tap again to remove (review history will be lost)'; return; }
     await DB.del(mine.id); S.mine.delete(mine.id); toast(`Removed “${rec.w}”`); closeSheet();
   };
   bindPractice(body, rec.w);
-  if (S.settings.autoplay) setTimeout(() => speak(rec.w), 250);
+  if (S.settings.autoplay && !o.replace) setTimeout(() => speak(rec.w), 250);
 }
 function bindPractice(body, word) {
   const out = $('.pout', body); const chk = $('[data-act=check]', body), rb = $('[data-act=rec]', body);
@@ -675,7 +708,7 @@ function openPack(k) {
     <p class="hint">${esc(p.name)} — ${words.length} terms with Arabic meanings. Save the ones you use, or save all and review about 10 new terms a day.</p>
     <div class="searchbox"><input id="pq" type="search" placeholder="Filter this pack" aria-label="Filter this pack"></div>
     <div class="actions" style="margin:0 0 14px"><button class="btn primary wide" data-act="all">Save all ${notMine().length} to my words</button></div>
-    <div id="plist"></div>`);
+    <div id="plist"></div>`, { onBack: () => { draw(); const a = $('[data-act=all]', body); if (a && !a.dataset.sure) { a.textContent = `Save all ${notMine().length} to my words`; a.hidden = !notMine().length; } } });
   const draw = () => {
     const q = $('#pq', body).value.trim();
     const list = words.filter(e => !q || (isAr(q) ? normAr(e.a).includes(normAr(q)) : e.w.includes(normEn(q))));
@@ -698,7 +731,7 @@ function openPack(k) {
 function bindIpa(root) { $$('[data-act=ipa]', root).forEach(b => b.onclick = () => { const l = $('.ipa-line', b.parentElement); l.hidden = false; b.remove(); }); }
 
 /* ---------- add / edit ---------- */
-function openAdd(pre = {}, editing = false) {
+function openAdd(pre = {}, editing = false, o = {}) {
   const d = { w: '', a: '', p: '', tags: [], note: '', ex: '', pr: null, ...pre };
   const allTags = [...new Set([...S.settings.tags, ...(d.tags || [])])];
   const body = sheet(editing ? 'Edit word' : 'Add a word', `
@@ -829,11 +862,12 @@ function openAdd(pre = {}, editing = false) {
       added: old?.added || Date.now(), edited: Date.now(), srs: old?.srs || newSrs()
     };
     if (S.coreMap.get(w)?.f) rec.f = S.coreMap.get(w).f;
-    await DB.put(rec); S.mine.set(w, rec); if (!old) logAct('add');
+    try { await DB.put(rec); } catch (err) { toast('Could not save. The phone storage may be full. Free some space and try again.'); return; }
+    S.mine.set(w, rec); if (!old) logAct('add');
     toast(old ? `Updated “${w}”` : `Saved “${w}” to my words`);
-    closeSheet();
+    closeSheet(o.closeParent ? 2 : 1); // saved from a word page: go back to the list it came from
   };
-  if (d.w) onWord(); else { showPron(); setTimeout(() => (d.a ? fw : fw).focus(), 50); }
+  if (d.w) onWord(); else { showPron(); setTimeout(() => fw.focus(), 50); }
   if (d.a && !d.w) fa.dispatchEvent(new Event('input'));
 }
 
@@ -977,8 +1011,8 @@ function drawCard(v) {
 
 /* ---------- Talk: free practice conversation built from my words ---------- */
 const TALK_Q = {
-  n: ['Tell me about the {w} at your work or at home.', 'Where do you usually see a {w}? Answer in one or two sentences.', 'Why is a {w} useful? Use the word “{w}” in your answer.'],
-  v: ['When did you last {w} something? Tell me about it.', 'What do you need to do before you {w}? Use “{w}” in your answer.', 'Make a sentence about your work using the verb “{w}”.'],
+  n: ['Tell me about “{w}” at your work or at home.', 'Where do you usually meet the word “{w}”? Answer in one or two sentences.', 'Why does “{w}” matter in your work? Use the word in your answer.'],
+  v: ['Tell me about something you did. Use the verb “{w}”.', 'What do people need to do before they {w}? Use “{w}” in your answer.', 'Make a sentence about your work using the verb “{w}”.'],
   adj: ['Describe something {w} you saw this week.', 'Tell me about a situation that was {w}. Use the word “{w}”.'],
   adv: ['Tell me something you do {w}.', 'Make a sentence using “{w}” about your daily routine.'],
   any: ['Make a sentence using “{w}”.', 'Use “{w}” in a sentence about your day.']
@@ -1049,7 +1083,7 @@ async function grammarCheck(text) {
     const c = new AbortController(); const t = setTimeout(() => c.abort(), 8000);
     const r = await fetch('https://api.languagetool.org/v2/check', { method: 'POST', signal: c.signal,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ text, language: 'en-US', level: 'default' }) });
+      body: new URLSearchParams({ text, language: S.settings.accent === 'en-GB' ? 'en-GB' : 'en-US', level: 'default' }) });
     clearTimeout(t);
     if (!r.ok) return null;
     return (await r.json()).matches || [];
@@ -1135,7 +1169,7 @@ async function handleAnswer(raw, alts) {
   T.busy = false;
   if (ok) {
     const nice = pick(TALK_PRAISE);
-    drawTalk(); setTimeout(() => askNext(nice), 700);
+    drawTalk(); setTimeout(() => { if (S.tab === 'talk') askNext(nice); else T.cur = null; }, 700);
   } else {
     T.retry = true; drawTalk();
   }
@@ -1240,10 +1274,10 @@ function viewSettings(v) {
       <div class="opt"><span>Excel / CSV list</span><button class="btn" data-act="excsv">Export</button></div>
       <div class="opt"><span>Restore backup or import CSV<br><span class="src">CSV columns: word, meaning, tags, note</span></span><button class="btn" data-act="imp">Import</button></div>
       <input type="file" id="impfile" accept=".json,.csv,text/csv,application/json" hidden>
-      <p class="about">${S.mine.size} words saved on this phone${DB.ok ? '' : ' (temporary storage — export a backup)'}. Export a backup from time to time, and before changing phone.</p>
+      <p class="about">${S.mine.size} words saved on this phone${DB.ok ? '' : ' (temporary storage — export a backup)'}. Last backup: ${S.settings.lastBackup ? new Date(S.settings.lastBackup).toLocaleDateString() : 'never'}. Export a backup from time to time, and before changing phone.</p>
     </section>
     <section class="set"><h2>About</h2>
-      <p class="about">Kalimati (كلماتي) — your private English–Arabic dictionary. Version 2.7.<br>
+      <p class="about">Kalimati (كلماتي) — your private English–Arabic dictionary. Version ${APP_VERSION}.<br>
       Built-in list: ${S.core.length.toLocaleString()} words with checked Arabic meanings — ${S.core.filter(e => !e.k).length.toLocaleString()} common English words and ${S.core.filter(e => e.k).length} oil &amp; gas and process terms, written for this app.<br>
       Extra suggested meanings (not checked): FreeDict / Arabeyes English–Arabic word list (GPL), about 85,000 words.<br>
       Online lookup (when on): MyMemory for translations, Free Dictionary API for English meanings, examples and pronunciation.<br>
@@ -1296,21 +1330,29 @@ async function shareBackup() {
   const name = `kalimati-backup-${stamp()}.json`;
   try {
     const file = new File([backupText()], name, { type: 'application/json' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Kalimati backup', text: `${S.mine.size} words` }); return; }
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Kalimati backup', text: `${S.mine.size} words` }); markBackup(); return; }
   } catch (e) { if (e && e.name === 'AbortError') return; }
-  download(name, backupText(), 'application/json'); toast('Sharing is not available here. The backup file was saved instead.');
+  download(name, backupText(), 'application/json'); toast('Sharing is not available here. The backup file was saved instead.'); markBackup();
 }
 function calendarReminder(hm) {
   const [h, m] = (hm || '19:00').split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0); if (d < new Date()) d.setDate(d.getDate() + 1);
   const f = t => t.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const p2 = n => String(n).padStart(2, '0');
+  const loc = t => `${t.getFullYear()}${p2(t.getMonth() + 1)}${p2(t.getDate())}T${p2(t.getHours())}${p2(t.getMinutes())}00`; // phone local time, so the alert does not move with summer time
   const end = new Date(d.getTime() + 10 * 60000);
   const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Kalimati//EN', 'BEGIN:VEVENT', `UID:kalimati-daily-${Date.now()}@kalimati`, `DTSTAMP:${f(new Date())}`,
-    `DTSTART:${f(d)}`, `DTEND:${f(end)}`, 'RRULE:FREQ=DAILY', 'SUMMARY:Kalimati — review my words', `DESCRIPTION:Open Kalimati and review today's words. ${location.href.split('?')[0]}`,
+    `DTSTART:${loc(d)}`, `DTEND:${loc(end)}`, 'RRULE:FREQ=DAILY', 'SUMMARY:Kalimati — review my words', `DESCRIPTION:Open Kalimati and review today's words. ${location.href.split('?')[0]}`,
     'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Review my words', 'TRIGGER:PT0M', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
   download('kalimati-daily-reminder.ics', ics, 'text/calendar'); toast('Calendar file ready. Open it and tap Save.');
 }
-function exportJSON() { download(`kalimati-backup-${stamp()}.json`, backupText(), 'application/json'); toast('Backup file exported'); }
-function csvCell(s) { s = String(s ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function markBackup() { S.settings.lastBackup = Date.now(); saveSettings(); if (S.tab === 'settings' || S.tab === 'search') render(); }
+function backupAgeDays() {
+  if (!S.mine.size) return 0;
+  const from = S.settings.lastBackup || Math.min(...[...S.mine.values()].map(r => r.added || Date.now()));
+  return Math.floor((Date.now() - from) / DAY);
+}
+function exportJSON() { download(`kalimati-backup-${stamp()}.json`, backupText(), 'application/json'); toast('Backup file exported'); markBackup(); }
+function csvCell(s) { s = String(s ?? ''); if (/^[=+@]/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
 function exportCSV() {
   const rows = [['word', 'meaning', 'tags', 'note', 'example', 'part of speech', 'pronunciation (US)', 'pronunciation (UK)', 'status', 'added']];
   for (const r of [...S.mine.values()].sort((a, b) => a.w.localeCompare(b.w))) {
@@ -1336,8 +1378,9 @@ async function importFile(file) {
   let incoming = [];
   try {
     if (/^\s*[{[]/.test(text)) {
-      const j = JSON.parse(text); incoming = (j.words || j).filter(x => x && x.w);
-      if (j.log) { for (const [k, e] of Object.entries(j.log)) { const c = S.log[k] || (S.log[k] = { rev: 0, add: 0 }); c.rev = Math.max(c.rev || 0, e.rev || 0); c.add = Math.max(c.add || 0, e.add || 0); } DB.setMeta('log', S.log); }
+      const j = JSON.parse(text); incoming = (Array.isArray(j) ? j : j.words || []).filter(x => x && typeof x.w === 'string');
+      if (j.settings && Array.isArray(j.settings.tags)) { for (const t of j.settings.tags) if (typeof t === 'string' && t.trim() && !S.settings.tags.includes(t)) S.settings.tags.push(t); saveSettings(); }
+      if (j.log) { for (const [k, e] of Object.entries(j.log)) { const c = S.log[k] || (S.log[k] = { rev: 0, add: 0 }); for (const kk of ['rev', 'add', 'say', 'talk']) if (e && e[kk]) c[kk] = Math.max(c[kk] || 0, +e[kk] || 0); } DB.setMeta('log', S.log); }
     } else {
       const rows = parseCSV(text); if (rows.length && /word/i.test(rows[0][0])) rows.shift();
       incoming = rows.filter(r => r[0] && r[1]).map(r => ({ w: r[0], a: r[1], tags: (r[2] || '').split(/[;|]/).map(s => s.trim()).filter(Boolean), note: r[3] || '', ex: r[4] || '' }));
@@ -1350,20 +1393,35 @@ async function importFile(file) {
     if (old && (old.edited || 0) >= (x.edited || 0) && x.srs) continue;
     const rec = { ...newRecBase(id), ...old, ...x, id, w: id, srs: x.srs || old?.srs || newSrs(), added: x.added || old?.added || Date.now(), edited: x.edited || Date.now() };
     if (!rec.c) rec.c = arpOf(id) || '';
+    rec.a = String(rec.a || ''); rec.tags = Array.isArray(rec.tags) ? rec.tags.filter(t => typeof t === 'string') : [];
+    if (!rec.srs || typeof rec.srs.due !== 'number') rec.srs = newSrs();
     old ? updated++ : added++; batch.push(rec); S.mine.set(id, rec);
   }
-  await DB.putMany(batch);
-  toast(`Import done: ${added} added, ${updated} updated`); render();
+  try { await DB.putMany(batch); } catch (err) { toast('Import could not be saved. The phone storage may be full.'); return; }
+  toast(incoming.length ? `Import done: ${added} added, ${updated} updated` : 'No words found in this file.'); render();
 }
 function newRecBase(id) { return { id, w: id, a: '', p: (S.coreMap.get(id) || {}).p || '', tags: [], note: '', ex: '', pr: null, src: S.coreMap.has(id) ? 'core' : 'user' }; }
 
 /* ---------------- start ---------------- */
+function showUpdate() {
+  if ($('#updatebar')) return;
+  const b = document.createElement('div'); b.id = 'updatebar'; b.className = 'updatebar'; b.setAttribute('role', 'status');
+  b.innerHTML = '<span>A new version of Kalimati is ready.</span><button class="btn primary">Update now</button>';
+  $('button', b).onclick = () => location.reload();
+  document.body.appendChild(b);
+}
 async function init() {
   try { const s = JSON.parse(localStorage.getItem('kalimati-settings') || 'null'); if (s) Object.assign(S.settings, s); } catch (e) { }
   applyTheme();
   $('#view').innerHTML = '<p class="hint">Loading…</p>';
   await DB.open();
-  const [core, words, ms, lg] = await Promise.all([fetch('data/core.json').then(r => r.json()), DB.all(), DB.getMeta('settings').catch(() => null), DB.getMeta('log').catch(() => null)]);
+  let core, words, ms, lg;
+  try {
+    [core, words, ms, lg] = await Promise.all([fetch('data/core.json').then(r => { if (!r.ok) throw new Error('core'); return r.json(); }), DB.all().catch(() => []), DB.getMeta('settings').catch(() => null), DB.getMeta('log').catch(() => null)]);
+  } catch (e) {
+    $('#view').innerHTML = '<div class="empty"><p>The word list could not be loaded. Check the internet connection and try again. Your saved words are safe.</p><button class="btn primary" id="retry">Try again</button></div>';
+    $('#retry').onclick = () => location.reload(); return;
+  }
   if (ms) Object.assign(S.settings, ms);
   if (lg && typeof lg === 'object' && !(lg instanceof IDBRequest)) S.log = lg;
   applyTheme();
@@ -1372,18 +1430,25 @@ async function init() {
   $$('.tab').forEach(t => t.onclick = () => {
     if (t.dataset.tab === 'add') return openAdd();
     if (S.tab === t.dataset.tab && t.dataset.tab === 'review' && S.review) return;
+    try { speechSynthesis.cancel(); } catch (e) { }
     S.tab = t.dataset.tab; render(); window.scrollTo(0, 0);
   });
   render();
   // shared text or ?add= link opens the add form
   const u = new URL(location.href); const shared = u.searchParams.get('text') || u.searchParams.get('title') || u.searchParams.get('add');
   if (shared) {
-    const w = shared.replace(/https?:\/\/\S+/g, '').trim().split(/\s+/).slice(0, 4).join(' ').replace(/[^\p{L}' -]/gu, '');
+    const w = shared.replace(/https?:\/\/\S+/g, '').trim().split(/\s+/).slice(0, 4).join(' ').replace(/[^\p{L}\p{N}' -]/gu, '');
     history.replaceState(null, '', u.pathname);
     if (w) openAdd(isAr(w) ? { a: w } : { w });
   }
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { }
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    const had = !!navigator.serviceWorker.controller; // false on first install: nothing to update then
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => { }); });
+    }).catch(() => { });
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) showUpdate(); });
+  }
   setTimeout(loadLex, 1500);
 }
 init();

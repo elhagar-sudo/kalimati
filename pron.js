@@ -130,15 +130,39 @@
 
   // ---------- British (UK) version, worked out from the US phones with standard rules ----------
   const BATH = new Set(['ask','asked','asking','after','afternoon','afterwards','last','fast','faster','past','class','classes','pass','passed','passenger','path','bath','grass','glass','castle','master','task','plaster','vast','cast','mask','rather','laugh','half','calf','staff','graph','draft','craft','aircraft','branch','chance','dance','answer','example','sample','plant','grant','demand','command','advance','advantage','disaster','nasty','fasten','ghastly','basket','mast','raft','shaft','can\'t','aunt','banana','tomato','drama','pasta','vase']);
+  // Words where the US dictionary sound does not show the UK vowel; kept as short lists.
+  const LONG_AW = new Set(['water','waters','watery','underwater','wastewater','freshwater','seawater','groundwater','rainwater']);
+  const SHORT_O = new Set(['foreign','foreigner','foreigners','forest','forests','historic','historical','historically','horrible','horror','majority','minority','minorities','authority','authorities','priority','priorities','moral','morally','morals','orange','oranges','origin','origins','correspond','corresponding','correspondent','correspondence','warrior','warriors','quarrel','quarry','corridor','corridors','coral','florist','torrent','florida','oregon','laurel','seniority','superiority','inferiority','categorical','rhetorical','metaphorical','coroner','porridge','lorry','laboratory','wallet','wallets','sausage','austria','australia','australian','laurel']);
+  const FUNC_O = new Set(['what','whatever','was','wasn\'t','of','from','because','somewhat']);
+  const AIR_E = new Set(['parent','parents','parenting','grandparent','grandparents']);
+  // Well-known words that are said differently in the UK (written with the same sound codes).
+  const UK_WORD = { schedule: 'SH EH1 D Y UW0 L', scheduled: 'SH EH1 D Y UW0 L D', vitamin: 'V IH1 T AH0 M IH0 N', vitamins: 'V IH1 T AH0 M IH0 N Z', privacy: 'P R IH1 V AH0 S IY0', leisure: 'L EH1 ZH ER0',
+    either: 'AY1 DH ER0', neither: 'N AY1 DH ER0', mobile: 'M OW1 B AY2 L', missile: 'M IH1 S AY2 L', fertile: 'F ER1 T AY2 L', hostile: 'HH AA1 S T AY2 L', fragile: 'F R AE1 JH AY2 L',
+    process: 'P R OW1 S EH0 S', progress: 'P R OW1 G R EH0 S', herb: 'HH ER1 B', herbs: 'HH ER1 B Z', clerk: 'K L AA1 R K', garage: 'G AE1 R AA0 ZH', advertisement: 'AH0 D V ER1 T IH0 S M AH0 N T',
+    laboratory: 'L AH0 B AO1 R AH0 T R IY0', lieutenant: 'L EH0 F T EH1 N AH0 N T', z: 'Z EH1 D', ate: 'EH1 T', been: 'B IY1 N', shone: 'SH AA1 N' };
   function ukify(syl, spell) {
     const w = (spell || '').toLowerCase();
     const hasO = /o/.test(w) || /(^|[^a-z])(w|qu|wh)a/.test(w) || /^(wa|qua|wha)|[^s]wa/.test(w);
-    const auSpell = /(au|aw|al|ough|or|oar|our|oor|ore)/.test(w);
+    const auSpell = /(au|aw|al(?=[lktsmwrd]|$)|ough|or|oar|oad|our|oor|ore)/.test(w) || LONG_AW.has(w);
     const out = syl.map(x => ({ ...x, on: [...x.on], co: [...x.co] }));
+    if (FUNC_O.has(w)) { const f = out.find(x => ['AH', 'AA', 'AO'].includes(x.v) && (x.s >= 1 || out.length === 1)); if (f) f.v = 'OH'; }
     out.forEach((x, i) => {
       if (!x.v) return;
       const next = out[i + 1];
       const vowelNext = next && next.on.length === 0; // UK keeps r before a vowel (very, operator)
+      // r between this vowel and the next one (hairy, necessary, category)
+      const rCo = next && x.co.length === 1 && x.co[0] === 'R' && vowelNext;
+      const rOn = next && !x.co.length && next.on.length === 1 && next.on[0] === 'R';
+      if (rCo || rOn) {
+        // -ary / -ory / -ery endings are weak in UK English: necessary, category
+        if (i === out.length - 2 && out.length >= 3 && x.s !== 1 && (x.v === 'EH' || x.v === 'AO') && next.v === 'IY' && !next.co.length && /(ary|ory|ery)$/.test(w)) {
+          x.v = 'ERX'; x.s = 0; if (rCo) { x.co = []; next.on = ['R']; } return;
+        }
+        if (x.v === 'EH' && x.s === 1) {
+          if (/(air|aer|ary|ar(ia|io|iu|ea)|ar(ing|ed|er|es)$)/.test(w) || AIR_E.has(w)) { x.v = 'EA'; if (rCo) { x.co = []; next.on = ['R']; } return; }
+          if (/arr|ar[aioe][b-df-hj-np-tv-z]/.test(w)) { x.v = 'AE'; return; }
+        }
+      }
       const ri = x.co.indexOf('R');
       const silentR = ri >= 0 && !(ri === x.co.length - 1 && vowelNext);
       if (x.v === 'ER') { if (!(vowelNext && !x.co.length)) x.v = 'ERX'; }
@@ -147,7 +171,7 @@
         x.v = ({ AA: 'AA', AO: 'AO', IH: 'IA', IY: 'IA', EH: 'EA', EY: 'EA', AE: 'EA', UH: 'UA', UW: 'UA', AY: 'AYA', AW: 'AWA', AH: 'ERX', OW: 'AO' })[x.v] || x.v;
       } else if (x.v === 'OW') x.v = 'OWX';
       else if (x.v === 'AA') x.v = hasO ? 'OH' : 'AA';
-      else if (x.v === 'AO') x.v = auSpell ? 'AO' : 'OH';
+      else if (x.v === 'AO') x.v = SHORT_O.has(w) ? 'OH' : auSpell ? 'AO' : 'OH';
       else if ((x.v === 'AE' || x.v === 'EY') && x.s === 1 && BATH.has(w)) x.v = 'AA';
       if (x.v === 'UW' && x.s >= 1 && x.on.length && ['T', 'D', 'N'].includes(x.on[x.on.length - 1]) && !x.on.includes('R') && /(t|d|n)(u|ew|eu)/.test(w)) x.on.push('Y');
     });
@@ -160,8 +184,9 @@
     if (!arpAll) return null;
     const spells = String(opts.spell || '').split(/[\s-]+/);
     const words = arpAll.split('|').map((a, wi) => {
-      let syl = syllabify(parse(a));
-      if (opts.uk) syl = ukify(syl, spells[wi] || spells[0]);
+      const sp = (spells[wi] || spells[0] || '').toLowerCase();
+      let syl = syllabify(parse(opts.uk && UK_WORD[sp] ? UK_WORD[sp] : a));
+      if (opts.uk) syl = ukify(syl, sp);
       const multi = syl.length > 1;
       return {
         ipa: wordIPA(syl),

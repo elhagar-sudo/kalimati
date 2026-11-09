@@ -432,3 +432,9 @@ mark.gerr{background:color-mix(in srgb, var(--danger) 22%, transparent);color:in
 .acctag{flex:none;font:700 11px/1 var(--ui);color:var(--accent);background:var(--soft);border:0;border-radius:6px;padding:4px 6px;min-width:34px;text-align:center}
 button.acctag{cursor:pointer}
 .ipa-line .line{margin-top:6px}
+
+/* v2.8: backup notice and update bar */
+.notice{display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;background:color-mix(in srgb, var(--warn) 16%, transparent);border:0;border-left:4px solid var(--warn);padding:10px 12px;border-radius:8px;font-size:14px;margin:0 0 12px;color:var(--text)}
+.notice b{font-size:15px}
+.updatebar{position:fixed;left:12px;right:12px;bottom:calc(84px + env(safe-area-inset-bottom));max-width:616px;margin:0 auto;z-index:40;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px 10px 14px;border-radius:14px;background:var(--ink);color:var(--on-ink);font-size:14.5px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+.updatebar .btn{padding:8px 14px;flex:none}

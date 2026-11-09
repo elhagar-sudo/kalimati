@@ -1,4 +1,4 @@
-KALIMATI — My English–Arabic Dictionary (version 2.7)
+KALIMATI — My English–Arabic Dictionary (version 2.8)
 
 HOW TO PUT IT ON YOUR PHONE (free, about 10 minutes)
 The app must be hosted on an https web address once. After that it installs
@@ -38,6 +38,25 @@ NEW IN VERSION 2
    calendar and alerts you every day).
  - Share backup straight to Google Drive, email or WhatsApp.
  - Oil & gas and process word pack (225 terms), on the Search screen.
+
+NEW IN VERSION 2.8 (review release)
+ - Back now returns to where you were: open a word from a photo, a spoken
+   sentence or a word pack, and Back goes to that list again. After you
+   save or edit a word, its page shows the new details.
+ - Updates: when a new version is on the server, the app shows "A new
+   version is ready - Update now". No need to close and reopen twice.
+   The camera reader (11 MB) is kept across updates.
+ - Backup reminder: the home screen reminds you when your words have not
+   been backed up for 30 days. Settings shows the date of the last backup.
+ - UK pronunciation corrected for many words: water, along, orange, forest,
+   necessary, category, hairy, parent, character, what, of, from, and UK-only
+   forms such as schedule, vitamin, privacy, mobile, process.
+ - Words with numbers can be saved (H2S, CO2).
+ - Talk: questions read correctly with any noun or verb; grammar check
+   follows your accent (US or UK).
+ - Daily reminder keeps the same clock time when summer time changes.
+ - Restore backup also brings back your tags; clear messages when a file
+   has no words, when storage is full, or when the word list cannot load.
 
 NEW IN VERSION 2.7
  - Pronunciation now shows US and UK: respelling, Arabic letters and IPA.
@@ -80,7 +99,8 @@ NEW IN VERSION 2.1
 
 UPDATING FROM VERSION 1 OR 2
  Replace the files on your hosting with this folder. Your words stay on
- the phone. Close and reopen the app twice to load the new version.
+ the phone. Open the app; from version 2.8 it shows "Update now" when the
+ new files are ready. (Coming from 2.7 or older: close and reopen twice.)
 
 GOOGLE PLAY (later)
  Use https://www.pwabuilder.com with your hosted link to produce an Android
